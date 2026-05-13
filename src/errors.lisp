@@ -50,3 +50,12 @@
   ((timeout-seconds :initarg :timeout-seconds :reader rpc-timeout-error-timeout-seconds :initform nil))
   (:report (lambda (c s)
              (format s "RPC timeout~@[ after ~As~]" (rpc-timeout-error-timeout-seconds c)))))
+
+(define-condition notebook-limit-error (notebooklm-error)
+  ((current-count :initarg :current-count :reader notebook-limit-error-current-count :initform 0)
+   (limit :initarg :limit :reader notebook-limit-error-limit :initform nil)
+   (original-error :initarg :original-error :reader notebook-limit-error-original :initform nil))
+  (:report (lambda (c s)
+             (format s "Notebook quota exceeded (~D notebooks, limit ~D)"
+                     (notebook-limit-error-current-count c)
+                     (notebook-limit-error-limit c)))))

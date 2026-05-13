@@ -98,7 +98,7 @@
                                      (cl-json:decode-json-from-string result))
                        (error () (return-from extract-rpc-result result)))
                      (return-from extract-rpc-result result))))))))))
-  nil))
+  nil)
 
 (defun decode-response (raw-response rpc-id &key allow-null)
   (let* ((cleaned (strip-anti-xssi raw-response))
