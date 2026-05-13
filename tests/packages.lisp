@@ -131,7 +131,8 @@
                 #:contains-user-displayable-error-p
                 #:extract-status-code)
   (:import-from #:notebooklm-cl.env
-                #:parse-url-host #:*default-base-url*)
+                #:parse-url-host #:*default-base-url*
+                #:get-default-language #:get-base-url #:get-base-host)
   (:import-from #:notebooklm-cl.errors
                 #:notebooklm-error #:validation-error #:configuration-error
                 #:network-error #:network-error-original
@@ -144,4 +145,9 @@
                 #:rpc-timeout-error #:rpc-timeout-error-timeout-seconds
                 #:decoding-error #:unknown-rpc-method-error
                 #:notebook-limit-error #:notebook-limit-error-current-count
-                #:notebook-limit-error-limit #:notebook-limit-error-original))
+                #:notebook-limit-error-limit #:notebook-limit-error-original)
+  (:import-from #:notebooklm-cl.core
+                #:make-client-core #:open-client #:close-client
+                #:client-open-p #:build-url)
+  (:import-from #:notebooklm-cl.notebooks
+                #:get-share-url #:get-summary #:get-description))
