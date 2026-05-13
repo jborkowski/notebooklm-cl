@@ -111,6 +111,22 @@ Type 4 with variant 1 → flashcards, variant 2 → quiz."
     (t (artifact-type-code-to-kind type-code))))
 
 ;;; ===========================================================================
+;;; Source-metadata extraction helpers
+;;; ===========================================================================
+
+(defun %extract-metadata-url (metadata)
+  "Extract URL from source metadata. Tries position 7 then 5."
+  (or (let ((url (%nths metadata 7 0)))
+        (when (stringp url) url))
+      (let ((url (%nths metadata 5 0)))
+        (when (stringp url) url))))
+
+(defun %extract-metadata-type-code (metadata)
+  "Extract type-code from source metadata at position 4."
+  (let ((tc (%nths metadata 4)))
+    (when (integerp tc) tc)))
+
+;;; ===========================================================================
 ;;; Helper: strip "thought\n" from notebook titles
 ;;; ===========================================================================
 
@@ -183,16 +199,9 @@ Handles deeply-nested [[[['id'], 'title', metadata]]], medium-nested
              (first x)
              nil))
        (extract-url (metadata)
-         (let ((url (%nths metadata 7 0)))
-           (when (stringp url)
-             (return-from extract-url url)))
-         (let ((url (%nths metadata 5 0)))
-           (when (stringp url)
-             (return-from extract-url url)))
-         nil)
+         (%extract-metadata-url metadata))
        (extract-type-code (metadata)
-         (let ((tc (%nths metadata 4)))
-           (when (integerp tc) tc)))
+         (%extract-metadata-type-code metadata))
        (extract-created-at (metadata)
          (let ((ts (%nths metadata 2 0)))
            (when (numberp ts) (parse-timestamp ts))))
@@ -519,17 +528,10 @@ Plaintext content at result[3][0]; markdown at result[4][1]."
             (setf title h1)))
         (let ((metadata (%nths header 2)))
           (when metadata
-            (let ((tc (%nths metadata 4)))
-              (when (integerp tc)
-                (setf type-code tc)))
-            ;; Try metadata[7][0] then metadata[5][0] for URL
-            (let ((u (%nths metadata 7 0)))
-              (when (stringp u)
-                (setf url u)))
-            (unless url
-              (let ((u (%nths metadata 5 0)))
-                (when (stringp u)
-                  (setf url u)))))))
+            (let ((tc (%extract-metadata-type-code metadata)))
+              (when tc (setf type-code tc)))
+            (let ((u (%extract-metadata-url metadata)))
+              (when u (setf url u))))))
       ;; Plaintext content at result[3][0]
       (let ((content-blocks (%nths data 3 0)))
         (when content-blocks

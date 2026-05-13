@@ -1,16 +1,21 @@
 (in-package #:notebooklm-cl.rpc.types)
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun %expand-named-pairs (pairs wrapper define-form)
+    "Shared driver: expand PAIRS (name value name value …) into a list of
+(DEFINE-FORM (INTERN wrapper-name-wrapper) value) forms."
+    (loop for (name val) on pairs by #'cddr
+          collect `(,define-form
+                    ,(intern (format nil "~A~A~A" wrapper name wrapper))
+                    ,val))))
+
 (defmacro define-rpc-methods (&rest pairs)
-  `(progn
-     ,@(loop for (name id) on pairs by #'cddr
-             collect `(defparameter ,(intern (format nil "*~A*" name)) ,id))))
+  `(progn ,@(%expand-named-pairs pairs "*" 'defparameter)))
 
 (defmacro define-rpc-constants (&rest pairs)
   "Define multiple defconstants at once.  Each PAIR is (NAME VALUE).
 Expands to (defconstant +NAME+ VALUE) for each pair."
-  `(progn
-     ,@(loop for (name val) on pairs by #'cddr
-             collect `(defconstant ,(intern (format nil "+~A+" name)) ,val))))
+  `(progn ,@(%expand-named-pairs pairs "+" 'defconstant)))
 
 (define-rpc-methods
   list-notebooks             "wXbhsf"
