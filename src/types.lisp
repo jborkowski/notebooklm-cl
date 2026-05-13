@@ -111,22 +111,6 @@ Type 4 with variant 1 → flashcards, variant 2 → quiz."
     (t (artifact-type-code-to-kind type-code))))
 
 ;;; ===========================================================================
-;;; Source-metadata extraction helpers
-;;; ===========================================================================
-
-(defun %extract-metadata-url (metadata)
-  "Extract URL from source metadata. Tries position 7 then 5."
-  (or (let ((url (%nths metadata 7 0)))
-        (when (stringp url) url))
-      (let ((url (%nths metadata 5 0)))
-        (when (stringp url) url))))
-
-(defun %extract-metadata-type-code (metadata)
-  "Extract type-code from source metadata at position 4."
-  (let ((tc (%nths metadata 4)))
-    (when (integerp tc) tc)))
-
-;;; ===========================================================================
 ;;; Helper: strip "thought\n" from notebook titles
 ;;; ===========================================================================
 
@@ -193,45 +177,32 @@ Handles deeply-nested [[[['id'], 'title', metadata]]], medium-nested
 [[['id'], 'title', metadata]], and flat ['id', 'title'] formats."
   (unless (and data (listp data))
     (error "Invalid source data: ~S" data))
-  (labels
-      ((extract-first-string (x)
-         (if (and (listp x) x (stringp (first x)))
-             (first x)
-             nil))
-       (extract-url (metadata)
-         (%extract-metadata-url metadata))
-       (extract-type-code (metadata)
-         (%extract-metadata-type-code metadata))
-       (extract-created-at (metadata)
-         (let ((ts (%nths metadata 2 0)))
-           (when (numberp ts) (parse-timestamp ts))))
-       ;; Normalize the three nesting shapes to a single entry.
-       (resolve-entry ()
-         (cond
-           ;; Deeply nested: [[[['id'], 'title', metadata, ...]]]
-           ((and (listp (first data))
-                 (listp (first (first data)))
-                 (listp (first (first (first data)))))
-            (first (first data)))
-           ;; Medium nested: data IS the entry [[['id'], 'title', metadata]]
-           ((and (listp (first data))
-                 (stringp (first (first data))))
-            data)
-           ;; Flat format: no metadata at all
-           (t nil))))
+  (labels ((resolve-entry ()
+             (cond
+               ((and (listp (first data))
+                     (listp (first (first data)))
+                     (listp (first (first (first data)))))
+                (first (first data)))      ; deeply nested
+               ((and (listp (first data))
+                     (stringp (first (first data))))
+                data)                       ; medium nested
+               (t nil))))                   ; flat
     (let ((entry (resolve-entry)))
       (if entry
-          (let* ((id (extract-first-string (first entry)))
-                 (title (if (stringp (%nths entry 1)) (%nths entry 1) nil))
-                 (metadata (%nths entry 2)))
-            (make-source :id (or id "")
-                         :title title
-                         :url (extract-url metadata)
-                         :type-code (extract-type-code metadata)
-                         :created-at (extract-created-at metadata)))
-          ;; Flat format: [id, title]
-          (let ((id (if (stringp (%nths data 0)) (%nths data 0) ""))
-                (title (if (stringp (%nths data 1)) (%nths data 1) nil)))
+          (notebooklm-cl.util:with-nested-extract (entry)
+              (id (0 0) :type stringp :default "")
+              (title (1) :type stringp)
+              (url7 (2 7 0) :type stringp)
+              (url5 (2 5 0) :type stringp)
+              (type-code (2 4) :type integerp)
+              (created-at (2 2 0) :type numberp :transform #'parse-timestamp)
+            (make-source :id id :title title
+                         :url (or url7 url5)
+                         :type-code type-code
+                         :created-at created-at))
+          (notebooklm-cl.util:with-nested-extract (data)
+              (id (0) :type stringp :default "")
+              (title (1) :type stringp)
             (make-source :id id :title title))))))
 
 ;;; ===========================================================================
@@ -247,27 +218,20 @@ Handles deeply-nested [[[['id'], 'title', metadata]]], medium-nested
 
 (defun notebook-from-api-response (data)
   "Parse a Notebook from a raw API response list.
-Structure: [title_str, sources_list, id_str, ..., ..., [..., ..., ..., ..., ..., [ts]]]"
-  (let* ((raw-title (if (stringp (%nths data 0)) (%nths data 0) ""))
-         (title (strip-thought-newline raw-title))
-         (sources-list (%nths data 1))
-         (sources-count (if (listp sources-list) (length sources-list) 0))
-         (id (if (stringp (%nths data 2)) (%nths data 2) ""))
-         (created-at nil)
-         (is-owner t))
-    ;; data[5] structure: [..., is_shared_flag, ..., ..., ..., [ts]]
-    (let ((meta (%nths data 5)))
-      (when meta
-        ;; data[5][1] = False means owner, True means shared
-        (setf is-owner (not (%nths meta 1)))
-        (let ((ts (%nths meta 5 0)))
-          (when (numberp ts)
-            (setf created-at (parse-timestamp ts))))))
-    (make-notebook :id id
-                   :title title
-                   :is-owner is-owner
-                   :sources-count sources-count
-                   :created-at created-at)))
+Structure: [title_str, sources_list, id_str, ..., ..., [..., is_shared_flag, ..., ..., ..., [ts]]]"
+  (notebooklm-cl.util:with-nested-extract (data)
+      (raw-title (0) :type stringp :default "")
+      (sources-list (1) :default nil)
+      (id (2) :type stringp :default "")
+      (flag (5 1))
+      (ts (5 5 0) :type numberp :transform #'parse-timestamp)
+    (let ((sources-count (if (listp sources-list) (length sources-list) 0))
+          (is-owner (not flag)))
+      (make-notebook :id id
+                     :title (strip-thought-newline raw-title)
+                     :is-owner is-owner
+                     :sources-count sources-count
+                     :created-at ts))))
 
 ;;; ===========================================================================
 ;;; SuggestedTopic
@@ -410,29 +374,19 @@ Phase 2: fallback to the first HTTP URL found."
   "Parse an Artifact from a raw API response list.
 Structure: [id, title, type, ..., status, ..., metadata, ...]
 Position 9 contains options with variant code at [9][1][0]."
-  (let* ((id (if (%nths data 0) (princ-to-string (%nths data 0)) ""))
-         (title (if (stringp (%nths data 1)) (%nths data 1) ""))
-         (atype (or (%nths data 2) 0))
-         (status (or (%nths data 4) 0))
-         (created-at nil)
-         (variant nil)
-         (url nil))
-    ;; Extract timestamp from data[15][0]
-    (let ((ts (%nths data 15 0)))
-      (when (numberp ts)
-        (setf created-at (parse-timestamp ts))))
-    ;; Extract variant from data[9][1][0]
-    (let ((v (%nths data 9 1 0)))
-      (when (numberp v)
-        (setf variant v)))
-    ;; Extract download URL
-    (setf url (%extract-artifact-url data atype))
-    (make-artifact :id id
+  (notebooklm-cl.util:with-nested-extract (data)
+      (id-raw (0) :default "")
+      (title (1) :type stringp :default "")
+      (atype (2) :default 0)
+      (status (4) :default 0)
+      (variant (9 1 0) :type numberp)
+      (created-at (15 0) :type numberp :transform #'parse-timestamp)
+    (make-artifact :id (if id-raw (princ-to-string id-raw) "")
                    :title title
                    :artifact-type atype
                    :status status
                    :created-at created-at
-                   :url url
+                   :url (%extract-artifact-url data atype)
                    :variant variant)))
 
 ;;; ===========================================================================
@@ -456,16 +410,14 @@ Position 9 contains options with variant code at [9][1][0]."
 The API returns a single ID at [0][0] that serves as both task_id and artifact_id.
 Status code is at [0][4]."
   (if (and data (listp data) (listp (first data)))
-      (let* ((artifact-data (first data))
-             (task-id (let ((id0 (%nths artifact-data 0)))
-                        (if (listp id0)
-                            (princ-to-string (%nths id0 0))
-                            (princ-to-string id0))))
-             (status-code (%nths artifact-data 4))
-             (status (if status-code
-                         (notebooklm-cl.rpc.types:artifact-status-to-str status-code)
-                         "failed")))
-        (make-generation-status :task-id task-id :status status))
+      (notebooklm-cl.util:with-nested-extract ((first data))
+          (id0 (0) :default "")
+          (status-code (4) :default nil)
+        (make-generation-status
+         :task-id (if (listp id0) (princ-to-string (%nths id0 0)) (princ-to-string id0))
+         :status (if status-code
+                     (notebooklm-cl.rpc.types:artifact-status-to-str status-code)
+                     "failed")))
       (make-generation-status :task-id ""
                               :status "failed"
                               :error "Generation failed - no artifact_id returned")))
@@ -484,14 +436,12 @@ Status code is at [0][4]."
 (defun note-from-api-response (data notebook-id)
   "Parse a Note from a raw API response list.
 Structure: [id, title, content, [ts], ...]"
-  (let* ((id (if (%nths data 0) (princ-to-string (%nths data 0)) ""))
-         (title (if (stringp (%nths data 1)) (%nths data 1) ""))
-         (content (if (stringp (%nths data 2)) (%nths data 2) ""))
-         (created-at nil))
-    (let ((ts (%nths data 3 0)))
-      (when (numberp ts)
-        (setf created-at (parse-timestamp ts))))
-    (make-note :id id
+  (notebooklm-cl.util:with-nested-extract (data)
+      (id-raw (0) :default "")
+      (title (1) :type stringp :default "")
+      (content (2) :type stringp :default "")
+      (created-at (3 0) :type numberp :transform #'parse-timestamp)
+    (make-note :id (if id-raw (princ-to-string id-raw) "")
                :notebook-id notebook-id
                :title title
                :content content
@@ -517,31 +467,21 @@ Structure: [id, title, content, [ts], ...]"
 Format: [[title, metadata, ...], ..., ..., [content_blocks], ...]
 Title is at result[0][1]; type-code at result[0][2][4]; URL at result[0][2][7] or [5].
 Plaintext content at result[3][0]; markdown at result[4][1]."
-  (let ((title "")
-        (type-code nil)
-        (url nil)
-        (content ""))
-    (when (and data (listp data) (listp (first data)))
-      (let ((header (first data)))
-        (let ((h1 (%nths header 1)))
-          (when (stringp h1)
-            (setf title h1)))
-        (let ((metadata (%nths header 2)))
-          (when metadata
-            (let ((tc (%extract-metadata-type-code metadata)))
-              (when tc (setf type-code tc)))
-            (let ((u (%extract-metadata-url metadata)))
-              (when u (setf url u))))))
-      ;; Plaintext content at result[3][0]
-      (let ((content-blocks (%nths data 3 0)))
-        (when content-blocks
-          (setf content (format nil "~{~A~^~%~}" (%extract-all-text content-blocks))))))
-    (make-source-fulltext :source-id source-id
-                          :title title
-                          :content content
-                          :type-code type-code
-                          :url url
-                          :char-count (length content))))
+  (notebooklm-cl.util:with-nested-extract (data)
+      (title (0 1) :type stringp :default "")
+      (type-code (0 2 4) :type integerp)
+      (url7 (0 2 7 0) :type stringp)
+      (url5 (0 2 5 0) :type stringp)
+      (content-blocks (3 0) :default nil)
+    (let ((content (if content-blocks
+                       (format nil "~{~A~^~%~}" (%extract-all-text content-blocks))
+                       "")))
+      (make-source-fulltext :source-id source-id
+                            :title title
+                            :content content
+                            :type-code type-code
+                            :url (or url7 url5)
+                            :char-count (length content)))))
 
 (defun %extract-all-text (data &optional (max-depth 100))
   "Recursively extract all text strings from nested arrays."
@@ -576,22 +516,15 @@ Plaintext content at result[3][0]; markdown at result[4][1]."
 (defun account-limits-from-api-response (data)
   "Parse AccountLimits from GET_USER_SETTINGS response data.
 Limits are at data[0][1] with notebook limit at [1] and source limit at [2]."
-  (let ((notebook-limit nil)
-        (source-limit nil)
-        (raw-limits nil))
-    (when (and data (listp data) (listp (first data)))
-      (let ((limits-list (%nths data 0 1)))
-        (when (listp limits-list)
-          (setf raw-limits (copy-list limits-list))
-          (let ((nl (%nths limits-list 1)))
-            (when (and (integerp nl) (not (typep nl 'boolean)) (> nl 0))
-              (setf notebook-limit nl)))
-          (let ((sl (%nths limits-list 2)))
-            (when (and (integerp sl) (not (typep sl 'boolean)) (> sl 0))
-              (setf source-limit sl))))))
-    (make-account-limits :notebook-limit notebook-limit
-                         :source-limit source-limit
-                         :raw-limits raw-limits)))
+  (notebooklm-cl.util:with-nested-extract (data)
+      (limits-list (0 1) :default nil)
+      (notebook-limit (0 1 1) :type integerp)
+      (source-limit (0 1 2) :type integerp)
+    (flet ((valid-limit (n) (and (integerp n) (not (typep n 'boolean)) (> n 0) n)))
+      (make-account-limits
+       :notebook-limit (valid-limit notebook-limit)
+       :source-limit (valid-limit source-limit)
+       :raw-limits (if (listp limits-list) (copy-list limits-list) nil)))))
 
 ;;; ===========================================================================
 ;;; ChatReference
@@ -667,14 +600,11 @@ data is a plist or alist with keys :source-id, :cited-text, :citation-number,
 (defun shared-user-from-api-response (data)
   "Parse a SharedUser from API response entry.
 Format: [email, permission, [], [name, avatar]]"
-  (let* ((email (if (stringp (%nths data 0)) (%nths data 0) ""))
-         (permission (let ((p (%nths data 1))) (if (integerp p) p 3)))
-         (name nil)
-         (photo-url nil))
-    (let ((user-info (%nths data 3)))
-      (when user-info
-        (let ((n (%nths user-info 0))) (when (stringp n) (setf name n)))
-        (let ((p (%nths user-info 1))) (when (stringp p) (setf photo-url p)))))
+  (notebooklm-cl.util:with-nested-extract (data)
+      (email (0) :type stringp :default "")
+      (permission (1) :type integerp :default 3)
+      (name (3 0) :type stringp)
+      (photo-url (3 1) :type stringp)
     (make-shared-user :email email
                       :name name
                       :permission permission

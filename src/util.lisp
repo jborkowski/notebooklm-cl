@@ -33,3 +33,47 @@ Single:   (%nths data 4)  => (nth 4 data) with length guard."
                (setf current (nth i current))
                (return nil))
         finally (return current)))
+
+(defmacro with-nested-extract ((data-var) &body clauses-and-body)
+  "Extract typed values from nested list DATA-VAR at indexed positions.
+Each clause before the body is (VAR PATH &key TYPE DEFAULT TRANSFORM).
+  PATH  — list of 0-based indices, e.g. (2 0) → (nth 0 (nth 2 data)).
+  TYPE  — predicate symbol (e.g. stringp, integerp). Nil = no check.
+  DEFAULT — value when extraction fails (missing path, wrong type, or nil).
+  TRANSFORM — 1-arg function applied to extracted value before binding.
+Clauses end when a form's second element is not a list.
+
+Example:
+  (with-nested-extract (d)
+      (id (0) :type stringp :default \"none\")
+      (count (1) :type integerp :transform #'1+)
+    (list id count))"
+  (let ((d (gensym "DATA"))
+        (bindings nil)
+        (remaining clauses-and-body))
+    (loop while (and remaining
+                     (consp (car remaining))
+                     (symbolp (caar remaining))
+                     (consp (cdar remaining))
+                     (consp (cadar remaining))
+                     (or (null (cadar remaining))
+                         (integerp (caadar remaining))))
+          for x = (pop remaining)
+          do (destructuring-bind (var path &key type default transform) x
+               (let ((raw (gensym "RAW")))
+                 (push `(,var
+                         (let ((,raw (notebooklm-cl.util:%nths ,d ,@path)))
+                           ,(cond
+                              ((and type transform)
+                               `(let ((val (if (,type ,raw) ,raw nil)))
+                                  (if val (funcall ,transform val) ,default)))
+                              (type
+                               `(if (,type ,raw) ,raw ,default))
+                              (transform
+                               `(funcall ,transform ,raw))
+                              (t
+                               `(or ,raw ,default)))))
+                       bindings))))
+    `(let ((,d ,data-var))
+       (let* ,(nreverse bindings)
+         ,@remaining))))

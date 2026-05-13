@@ -10,7 +10,8 @@
   (:export #:url-encode
            #:starts-with-p
            #:ends-with-p
-           #:%nths))
+           #:%nths
+           #:with-nested-extract))
 
 (defpackage #:notebooklm-cl.errors
   (:use #:cl)
