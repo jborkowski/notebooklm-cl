@@ -115,6 +115,41 @@ filtering to items where id matches RPC-ID.  MIN-LENGTH guards item length (defa
              (return-from extract-rpc-result result))))))
   nil)
 
+;;; --- RPC Error Codes ---
+
+(defconstant +rpc-unknown+ 0)
+(defconstant +rpc-invalid-request+ 400)
+(defconstant +rpc-unauthorized+ 401)
+(defconstant +rpc-forbidden+ 403)
+(defconstant +rpc-not-found+ 404)
+(defconstant +rpc-rate-limited+ 429)
+(defconstant +rpc-server-error+ 500)
+
+(defvar *error-code-messages*
+  `((,+rpc-invalid-request+ . ("Invalid request parameters. Check your input and try again." . nil))
+    (,+rpc-unauthorized+ . ("Authentication required. Run 'notebooklm login' to re-authenticate." . nil))
+    (,+rpc-forbidden+ . ("Insufficient permissions for this operation." . nil))
+    (,+rpc-not-found+ . ("Requested resource not found." . nil))
+    (,+rpc-rate-limited+ . ("API rate limit exceeded. Please wait before retrying." . t))
+    (,+rpc-server-error+ . ("Server error occurred. This is usually temporary - try again later." . t))))
+
+(defun get-error-message-for-code (code)
+  "Return (values MESSAGE IS-RETRYABLE) for an integer RPC error code.
+Returns generic guidance for unknown codes."
+  (if (null code)
+      (values "Unknown error occurred." nil)
+      (let ((entry (assoc code *error-code-messages*)))
+        (if entry
+            (values (cadr entry) (cddr entry))
+            (cond ((<= 400 code 499)
+                   (values (format nil "Client error ~D. Check your request parameters." code) nil))
+                  ((<= 500 code 599)
+                   (values (format nil "Server error ~D. This is usually temporary - try again later." code) t))
+                  (t
+                   (values (format nil "Error code: ~D" code) nil)))))))
+
+;;; --- Main decode pipeline ---
+
 (defun decode-response (raw-response rpc-id &key allow-null)
   (let* ((cleaned (strip-anti-xssi raw-response))
          (chunks (parse-chunked-response cleaned))

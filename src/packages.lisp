@@ -225,6 +225,7 @@
 (defpackage #:notebooklm-cl.rpc.decoder
   (:use #:cl)
   (:export #:strip-anti-xssi
+           #:split-lines
            #:parse-chunked-response
            #:collect-rpc-ids
            #:extract-rpc-result
