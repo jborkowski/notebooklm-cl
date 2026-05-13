@@ -5,6 +5,13 @@
      ,@(loop for (name id) on pairs by #'cddr
              collect `(defparameter ,(intern (format nil "*~A*" name)) ,id))))
 
+(defmacro define-rpc-constants (&rest pairs)
+  "Define multiple defconstants at once.  Each PAIR is (NAME VALUE).
+Expands to (defconstant +NAME+ VALUE) for each pair."
+  `(progn
+     ,@(loop for (name val) on pairs by #'cddr
+             collect `(defconstant ,(intern (format nil "+~A+" name)) ,val))))
+
 (define-rpc-methods
   list-notebooks             "wXbhsf"
   create-notebook            "CCqFvf"
@@ -52,119 +59,130 @@
   "/_/LabsTailwindUi/data/google.internal.labs.tailwind.orchestration.v1.LabsTailwindOrchestrationService/GenerateFreeFormStreamed")
 
 ;; --- Artifact type codes ---
-(defconstant +artifact-audio+ 1)
-(defconstant +artifact-report+ 2)
-(defconstant +artifact-video+ 3)
-(defconstant +artifact-quiz+ 4)
-(defconstant +artifact-mind-map+ 5)
-(defconstant +artifact-infographic+ 7)
-(defconstant +artifact-slide-deck+ 8)
-(defconstant +artifact-data-table+ 9)
+(define-rpc-constants
+  artifact-audio 1
+  artifact-report 2
+  artifact-video 3
+  artifact-quiz 4
+  artifact-mind-map 5
+  artifact-infographic 7
+  artifact-slide-deck 8
+  artifact-data-table 9)
 
 ;; --- Artifact status codes ---
-(defconstant +artifact-processing+ 1)
-(defconstant +artifact-pending+ 2)
-(defconstant +artifact-completed+ 3)
-(defconstant +artifact-failed+ 4)
+(define-rpc-constants
+  artifact-processing 1
+  artifact-pending 2
+  artifact-completed 3
+  artifact-failed 4)
 
 (defun artifact-status-to-str (code)
   (ecase code
-    (1 "in_progress")
-    (2 "pending")
-    (3 "completed")
-    (4 "failed")))
+    (#.+artifact-processing+ "in_progress")
+    (#.+artifact-pending+ "pending")
+    (#.+artifact-completed+ "completed")
+    (#.+artifact-failed+ "failed")))
 
 ;; --- Source status codes ---
-(defconstant +source-processing+ 1)
-(defconstant +source-ready+ 2)
-(defconstant +source-error+ 3)
-(defconstant +source-preparing+ 5)
+(define-rpc-constants
+  source-processing 1
+  source-ready 2
+  source-error 3
+  source-preparing 5)
 
 (defun source-status-to-str (code)
   (ecase code
-    (1 "processing")
-    (2 "ready")
-    (3 "error")
-    (5 "preparing")))
+    (#.+source-processing+ "processing")
+    (#.+source-ready+ "ready")
+    (#.+source-error+ "error")
+    (#.+source-preparing+ "preparing")))
 
 ;; --- Audio format / length ---
-(defconstant +audio-deep-dive+ 1)
-(defconstant +audio-brief+ 2)
-(defconstant +audio-critique+ 3)
-(defconstant +audio-debate+ 4)
-(defconstant +audio-short+ 1)
-(defconstant +audio-default+ 2)
-(defconstant +audio-long+ 3)
+(define-rpc-constants
+  audio-deep-dive 1
+  audio-brief 2
+  audio-critique 3
+  audio-debate 4
+  audio-short 1
+  audio-default 2
+  audio-long 3)
 
 ;; --- Video format / style ---
-(defconstant +video-explainer+ 1)
-(defconstant +video-brief+ 2)
-(defconstant +video-cinematic+ 3)
-(defconstant +video-auto-select+ 1)
-(defconstant +video-custom+ 2)
-(defconstant +video-classic+ 3)
-(defconstant +video-whiteboard+ 4)
-(defconstant +video-kawaii+ 5)
-(defconstant +video-anime+ 6)
-(defconstant +video-watercolor+ 7)
-(defconstant +video-retro-print+ 8)
-(defconstant +video-heritage+ 9)
-(defconstant +video-paper-craft+ 10)
+(define-rpc-constants
+  video-explainer 1
+  video-brief 2
+  video-cinematic 3
+  video-auto-select 1
+  video-custom 2
+  video-classic 3
+  video-whiteboard 4
+  video-kawaii 5
+  video-anime 6
+  video-watercolor 7
+  video-retro-print 8
+  video-heritage 9
+  video-paper-craft 10)
 
 ;; --- Quiz quantity / difficulty ---
-(defconstant +quiz-fewer+ 1)
-(defconstant +quiz-standard+ 2)
-(defconstant +quiz-more+ 2)
-(defconstant +quiz-easy+ 1)
-(defconstant +quiz-medium+ 2)
-(defconstant +quiz-hard+ 3)
+(define-rpc-constants
+  quiz-fewer 1
+  quiz-standard 2
+  quiz-more 2
+  quiz-easy 1
+  quiz-medium 2
+  quiz-hard 3)
 
 ;; --- Infographic orientation / detail / style ---
-(defconstant +infographic-landscape+ 1)
-(defconstant +infographic-portrait+ 2)
-(defconstant +infographic-square+ 3)
-(defconstant +infographic-concise+ 1)
-(defconstant +infographic-standard+ 2)
-(defconstant +infographic-detailed+ 3)
-(defconstant +infographic-auto-select+ 1)
-(defconstant +infographic-sketch-note+ 2)
-(defconstant +infographic-professional+ 3)
-(defconstant +infographic-bento-grid+ 4)
-(defconstant +infographic-editorial+ 5)
-(defconstant +infographic-instructional+ 6)
-(defconstant +infographic-bricks+ 7)
-(defconstant +infographic-clay+ 8)
-(defconstant +infographic-anime+ 9)
-(defconstant +infographic-kawaii+ 10)
-(defconstant +infographic-scientific+ 11)
+(define-rpc-constants
+  infographic-landscape 1
+  infographic-portrait 2
+  infographic-square 3
+  infographic-concise 1
+  infographic-standard 2
+  infographic-detailed 3
+  infographic-auto-select 1
+  infographic-sketch-note 2
+  infographic-professional 3
+  infographic-bento-grid 4
+  infographic-editorial 5
+  infographic-instructional 6
+  infographic-bricks 7
+  infographic-clay 8
+  infographic-anime 9
+  infographic-kawaii 10
+  infographic-scientific 11)
 
 ;; --- Slide deck ---
-(defconstant +slide-deck-detailed+ 1)
-(defconstant +slide-deck-presenter+ 2)
-(defconstant +slide-deck-default+ 1)
-(defconstant +slide-deck-short+ 2)
+(define-rpc-constants
+  slide-deck-detailed 1
+  slide-deck-presenter 2
+  slide-deck-default 1
+  slide-deck-short 2)
 
 ;; --- Chat ---
-(defconstant +chat-default+ 1)
-(defconstant +chat-custom+ 2)
-(defconstant +chat-learning-guide+ 3)
-(defconstant +chat-response-default+ 1)
-(defconstant +chat-response-longer+ 4)
-(defconstant +chat-response-shorter+ 5)
+(define-rpc-constants
+  chat-default 1
+  chat-custom 2
+  chat-learning-guide 3
+  chat-response-default 1
+  chat-response-longer 4
+  chat-response-shorter 5)
 
 ;; --- Export ---
-(defconstant +export-docs+ 1)
-(defconstant +export-sheets+ 2)
+(define-rpc-constants
+  export-docs 1
+  export-sheets 2)
 
 ;; --- Share ---
-(defconstant +share-restricted+ 0)
-(defconstant +share-anyone-with-link+ 1)
-(defconstant +share-full-notebook+ 0)
-(defconstant +share-chat-only+ 1)
-(defconstant +share-owner+ 1)
-(defconstant +share-editor+ 2)
-(defconstant +share-viewer+ 3)
-(defconstant +share-remove+ 4)
+(define-rpc-constants
+  share-restricted 0
+  share-anyone-with-link 1
+  share-full-notebook 0
+  share-chat-only 1
+  share-owner 1
+  share-editor 2
+  share-viewer 3
+  share-remove 4)
 
 ;; --- URL helpers ---
 (defun get-batchexecute-url ()

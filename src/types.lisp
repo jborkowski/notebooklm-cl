@@ -35,6 +35,33 @@ result is wrapped in (or … default)."
      (print-unreadable-object (obj stream :type t)
        (format stream ,fmt ,@(loop for a in accessors collect `(,a obj))))))
 
+;;; ===========================================================================
+;;; Code-mapper macro — defines an alist + lookup function in one form
+;;; ===========================================================================
+
+(defmacro define-code-mapper (function-name map-var &body mappings)
+  "Define MAP-VAR (a parameter holding an alist) and FUNCTION-NAME(CODE)
+that looks up CODE in MAP-VAR and returns the string value, or \"unknown\"
+if CODE is NIL or not found.
+
+Each MAPPING is (CODE STRING).
+
+Example:
+  (define-code-mapper source-type-code-to-kind *source-type-code-map*
+    (1 \"google_docs\")
+    (2 \"google_slides\"))
+  → (source-type-code-to-kind 1) => \"google_docs\"
+    (source-type-code-to-kind nil) => \"unknown\"
+    (source-type-code-to-kind 99) => \"unknown\""
+  `(progn
+     (defparameter ,map-var
+       ',(loop for (k v) in mappings collect (cons k v)))
+     (defun ,function-name (code &optional (default "unknown"))
+       (if code
+           (let ((entry (assoc code ,map-var)))
+             (if entry (cdr entry) default))
+           default))))
+
 ;;; Helper: simple URL detection (avoids external dependency)
 (defun %url-string-p (s)
   (and s (stringp s)
@@ -45,40 +72,33 @@ result is wrapped in (or … default)."
 ;;; Source-type code → string mapping
 ;;; ===========================================================================
 
-(defparameter *source-type-code-map*
-  '((1 . "google_docs")
-    (2 . "google_slides")
-    (3 . "pdf")
-    (4 . "pasted_text")
-    (5 . "web_page")
-    (8 . "markdown")
-    (9 . "youtube")
-    (10 . "media")
-    (11 . "docx")
-    (13 . "image")
-    (14 . "google_spreadsheet")
-    (16 . "csv")
-    (17 . "epub")))
-
-(defun source-type-code-to-kind (code)
-  "Convert an internal source type-code integer to a kind string."
-  (if code
-      (let ((entry (assoc code *source-type-code-map*)))
-        (if entry (cdr entry) "unknown"))
-      "unknown"))
+(define-code-mapper source-type-code-to-kind *source-type-code-map*
+  (1 "google_docs")
+  (2 "google_slides")
+  (3 "pdf")
+  (4 "pasted_text")
+  (5 "web_page")
+  (8 "markdown")
+  (9 "youtube")
+  (10 "media")
+  (11 "docx")
+  (13 "image")
+  (14 "google_spreadsheet")
+  (16 "csv")
+  (17 "epub"))
 
 ;;; ===========================================================================
 ;;; Artifact-type code + variant → kind string mapping
 ;;; ===========================================================================
 
-(defparameter *artifact-type-code-map*
-  '((1 . "audio")
-    (2 . "report")
-    (3 . "video")
-    (5 . "mind_map")
-    (7 . "infographic")
-    (8 . "slide_deck")
-    (9 . "data_table")))
+(define-code-mapper artifact-type-code-to-kind *artifact-type-code-map*
+  (1 "audio")
+  (2 "report")
+  (3 "video")
+  (5 "mind_map")
+  (7 "infographic")
+  (8 "slide_deck")
+  (9 "data_table"))
 
 (defun artifact-type-to-kind (type-code variant)
   "Convert an artifact type-code + variant to a kind string.
@@ -88,8 +108,7 @@ Type 4 with variant 1 → flashcards, variant 2 → quiz."
      (if (= variant 1) "flashcards"
          (if (= variant 2) "quiz"
              "unknown")))
-    (t (let ((entry (assoc type-code *artifact-type-code-map*)))
-         (if entry (cdr entry) "unknown")))))
+    (t (artifact-type-code-to-kind type-code))))
 
 ;;; ===========================================================================
 ;;; Helper: strip "thought\n" from notebook titles
