@@ -165,65 +165,54 @@ Handles deeply-nested [[[['id'], 'title', metadata]]], medium-nested
              nil))
        (extract-url (metadata)
          (when (and (listp metadata) (>= (length metadata) 8))
-           (let ((url-list (nth 7 metadata))) ; metadata[7]
+           (let ((url-list (nth 7 metadata)))
              (when (and (listp url-list) url-list (stringp (first url-list)))
                (return-from extract-url (first url-list)))))
          (when (and (listp metadata) (>= (length metadata) 6))
-           (let ((yt-data (nth 5 metadata)))  ; metadata[5]
+           (let ((yt-data (nth 5 metadata)))
              (when (and (listp yt-data) yt-data (stringp (first yt-data)))
                (return-from extract-url (first yt-data)))))
          nil)
        (extract-type-code (metadata)
          (when (and (listp metadata) (>= (length metadata) 5)
-                    (integerp (fifth metadata))) ; metadata[4]
+                    (integerp (fifth metadata)))
            (fifth metadata)))
        (extract-created-at (metadata)
          (when (and (listp metadata) (>= (length metadata) 3))
-           (let ((ts-list (third metadata)))   ; metadata[2]
+           (let ((ts-list (third metadata)))
              (when (and (listp ts-list) ts-list (numberp (first ts-list)))
-               (parse-timestamp (first ts-list)))))))
-    ;; Check if deeply nested: data[0][0][0] is a list
-    (if (and (listp (first data))
-             (listp (first (first data)))
-             (listp (first (first (first data)))))
-        ;; Deeply nested: [[[['id'], 'title', metadata, ...]]]
-        (let* ((entry (first (first data)))
-               (id (extract-first-string (first entry)))
-               (title (if (and (>= (length entry) 2) (stringp (second entry)))
-                          (second entry) nil))
-               (metadata (if (and (>= (length entry) 3) (listp (third entry)))
-                             (third entry) nil)))
-          (make-source :id (or id "")
-                       :title title
-                       :url (extract-url metadata)
-                       :type-code (extract-type-code metadata)
-                       :created-at (extract-created-at metadata)))
-        ;; Check if medium nested: data[0][0] is a string or list...
-        ;; Actually: medium nested is [[['id'], 'title', metadata], ...]
-        ;; data[0] = ['id']→string, or data[0][0] = list with string
-        ;; Medium nested: data is the entry itself: [['id'], 'title', metadata]
-        ;; Check: (first entry) is a list containing a string (the id)
-        (if (and (listp (first data))
+               (parse-timestamp (first ts-list))))))
+       ;; Normalize the three nesting shapes to a single entry.
+       (resolve-entry ()
+         (cond
+           ;; Deeply nested: [[[['id'], 'title', metadata, ...]]]
+           ((and (listp (first data))
+                 (listp (first (first data)))
+                 (listp (first (first (first data)))))
+            (first (first data)))
+           ;; Medium nested: data IS the entry [[['id'], 'title', metadata]]
+           ((and (listp (first data))
                  (stringp (first (first data))))
-            ;; Medium nested — data IS the entry
-            (let* ((entry data)
-                   (id (if (stringp (first entry))
-                           (first entry)
-                           (extract-first-string (first entry))))
-                   (title (if (and (>= (length entry) 2) (stringp (second entry)))
-                              (second entry) nil))
-                   (metadata (if (and (>= (length entry) 3) (listp (third entry)))
-                                 (third entry) nil)))
-              (make-source :id (or id "")
-                           :title title
-                           :url (extract-url metadata)
-                           :type-code (extract-type-code metadata)
-                           :created-at (extract-created-at metadata)))
-            ;; Flat format: [id, title]
-            (let ((id (if (and data (stringp (first data))) (first data) ""))
-                  (title (if (and (>= (length data) 2) (stringp (second data)))
-                             (second data) nil)))
-              (make-source :id id :title title))))))
+            data)
+           ;; Flat format: no metadata at all
+           (t nil))))
+    (let ((entry (resolve-entry)))
+      (if entry
+          (let* ((id (extract-first-string (first entry)))
+                 (title (if (and (>= (length entry) 2) (stringp (second entry)))
+                            (second entry) nil))
+                 (metadata (if (and (>= (length entry) 3) (listp (third entry)))
+                               (third entry) nil)))
+            (make-source :id (or id "")
+                         :title title
+                         :url (extract-url metadata)
+                         :type-code (extract-type-code metadata)
+                         :created-at (extract-created-at metadata)))
+          ;; Flat format: [id, title]
+          (let ((id (if (and data (stringp (first data))) (first data) ""))
+                (title (if (and (>= (length data) 2) (stringp (second data)))
+                           (second data) nil)))
+            (make-source :id id :title title))))))
 
 ;;; ===========================================================================
 ;;; Notebook
@@ -343,41 +332,35 @@ Structure: [title_str, sources_list, id_str, ..., ..., [..., ..., ..., ..., ...,
 (defun artifact-status-str (art)
   (notebooklm-cl.rpc.types:artifact-status-to-str (art-status art)))
 
+(defun %find-media-url (media-lists preferred-mime)
+  "Find best URL in MEDIA-LISTS (list-of-lists of [url, ?, mime] entries).
+Phase 1: return first URL whose MIME matches PREFERRED-MIME.
+Phase 2: fallback to the first HTTP URL found."
+  (flet ((urlp (x) (and (listp x) (%url-string-p (first x)))))
+    (dolist (ml media-lists)
+      (when (listp ml)
+        (dolist (item ml)
+          (when (and (urlp item) (>= (length item) 3)
+                     (string= (third item) preferred-mime))
+            (return-from %find-media-url (first item))))))
+    (dolist (ml media-lists)
+      (when (listp ml)
+        (dolist (item ml)
+          (when (urlp item)
+            (return-from %find-media-url (first item)))))))
+  nil)
+
 (defun %extract-audio-url (data)
-  "Extract audio download URL from artifact data.
-Audio URL is at data[6][5][*][0] where [*][2] = \"audio/mp4\"."
+  "Extract audio download URL from artifact data at data[6][5][*][0]."
   (when (and (>= (length data) 7) (listp (sixth data)))
     (let ((media-container (sixth data)))
       (when (and (>= (length media-container) 6) (listp (nth 5 media-container)))
-        (let ((media-list (nth 5 media-container)))
-          (when (listp media-list)
-            ;; Prefer audio/mp4 item
-            (dolist (item media-list)
-              (when (and (listp item) (>= (length item) 3)
-                         (string= (third item) "audio/mp4")
-                         (%url-string-p (first item)))
-                (return-from %extract-audio-url (first item))))
-            ;; Fallback: any item with an HTTP URL
-            (dolist (item media-list)
-              (when (and (listp item) (%url-string-p (first item)))
-                (return-from %extract-audio-url (first item)))))))))
-  nil)
+        (%find-media-url (list (nth 5 media-container)) "audio/mp4")))))
 
 (defun %extract-video-url (data)
-  "Extract video download URL from artifact data.
-Video URLs are at data[8][*][*][0]."
+  "Extract video download URL from artifact data at data[8][*][*][0]."
   (when (and (>= (length data) 9) (listp (nth 8 data)))
-    (let ((fallback-url nil))
-      (block nil
-        (dolist (media-list (nth 8 data))
-          (when (listp media-list)
-            (dolist (item media-list)
-              (when (and (listp item) (%url-string-p (first item)))
-                (when (null fallback-url)
-                  (setf fallback-url (first item)))
-                (when (and (>= (length item) 3) (string= (third item) "video/mp4"))
-                  (return-from %extract-video-url (first item))))))))
-      fallback-url)))
+    (%find-media-url (nth 8 data) "video/mp4")))
 
 (defun %extract-infographic-url (data)
   "Extract infographic download URL from artifact data."
