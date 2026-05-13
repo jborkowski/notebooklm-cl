@@ -1,10 +1,23 @@
 (in-package #:notebooklm-cl.notebooks)
 
 ;;; ===========================================================================
-;;; Constants
+;;; Helpers
 ;;; ===========================================================================
 
 (defparameter *create-notebook-quota-rpc-code* 3)
+
+(defun %notebook-source-path (notebook-id)
+  (format nil "/notebook/~A" notebook-id))
+
+(defun %notebook-url (notebook-id)
+  (format nil "~A/notebook/~A" (get-base-url) notebook-id))
+
+(defun %summarize-raw (client notebook-id)
+  "Raw RPC call to SUMMARIZE. Returns result list or NIL."
+  (notebooklm-cl.core:rpc-call
+   client notebooklm-cl.rpc.types:*summarize*
+   (list notebook-id (list 2))
+   :source-path (%notebook-source-path notebook-id)))
 
 (defun %build-get-user-settings-params ()
   "Build params for GET_USER_SETTINGS RPC call."
@@ -55,7 +68,6 @@ Returns a list of NOTEBOOK structs."
            (notebooks (ignore-errors (list-notebooks client))))
       (when notebooks
         (let ((owned-count (count-if #'notebook-is-owner notebooks)))
-          ;; Allow one notebook of slack
           (unless (< owned-count (max (1- notebook-limit) 0))
             (error 'notebook-limit-error
                    :current-count owned-count
@@ -86,7 +98,7 @@ Returns a NOTEBOOK struct."
          (result (notebooklm-cl.core:rpc-call
                   client notebooklm-cl.rpc.types:*get-notebook*
                   params
-                  :source-path (format nil "/notebook/~A" notebook-id)))
+                  :source-path (%notebook-source-path notebook-id)))
          (nb-info (if (and result (listp result) result)
                       (first result)
                       nil)))
@@ -114,63 +126,44 @@ Returns a NOTEBOOK struct."
    (list notebook-id (list (list nil nil nil (list nil new-title))))
    :source-path "/"
    :allow-null t)
-  ;; Fetch and return the updated notebook
   (get-notebook client notebook-id))
 
 ;;; ===========================================================================
-;;; get-summary
+;;; get-summary / get-description
 ;;; ===========================================================================
 
 (defun get-summary (client notebook-id)
-  "Get raw summary text for a notebook.
-Returns a string."
-  (let* ((params (list notebook-id (list 2)))
-         (result (notebooklm-cl.core:rpc-call
-                  client notebooklm-cl.rpc.types:*summarize*
-                  params
-                  :source-path (format nil "/notebook/~A" notebook-id))))
+  "Get raw summary text for a notebook. Returns a string."
+  (let ((result (%summarize-raw client notebook-id)))
     (handler-case
         (if (and result (listp result) result
                  (listp (first result)) (first result)
                  (listp (first (first result))))
-            (let ((summary (first (first (first result)))))
-              (if summary (princ-to-string summary) ""))
+            (princ-to-string (first (first (first result))))
             "")
       (error () ""))))
-
-;;; ===========================================================================
-;;; get-description
-;;; ===========================================================================
 
 (defun get-description (client notebook-id)
   "Get AI-generated summary and suggested topics for a notebook.
 Returns a NOTEBOOK-DESCRIPTION struct."
-  (let* ((params (list notebook-id (list 2)))
-         (result (notebooklm-cl.core:rpc-call
-                  client notebooklm-cl.rpc.types:*summarize*
-                  params
-                  :source-path (format nil "/notebook/~A" notebook-id)))
+  (let* ((result (%summarize-raw client notebook-id))
          (summary "")
          (suggested-topics nil))
     (when (and result (listp result) result)
       (let ((outer (first result)))
         (handler-case
             (when (and (listp outer) outer)
-              ;; Summary at outer[0][0]
               (let ((summary-val (first outer)))
                 (when (and (listp summary-val) summary-val)
                   (setf summary (princ-to-string (first summary-val)))))
-              ;; Suggested topics at outer[1][0]
               (when (and (>= (length outer) 2) (listp (second outer)))
                 (let ((topics-list (first (second outer))))
                   (when (listp topics-list)
                     (dolist (topic topics-list)
                       (when (and (listp topic) (>= (length topic) 2))
                         (push (make-suggested-topic
-                               :question (if (first topic)
-                                             (princ-to-string (first topic)) "")
-                               :prompt (if (second topic)
-                                           (princ-to-string (second topic)) ""))
+                               :question (princ-to-string (or (first topic) ""))
+                               :prompt (princ-to-string (or (second topic) "")))
                               suggested-topics))))))
               (setf suggested-topics (nreverse suggested-topics)))
           (error ()))))
@@ -198,7 +191,7 @@ Returns a NOTEBOOK-DESCRIPTION struct."
   (notebooklm-cl.core:rpc-call
    client notebooklm-cl.rpc.types:*get-notebook*
    (list notebook-id nil (list 2) nil 0)
-   :source-path (format nil "/notebook/~A" notebook-id)))
+   :source-path (%notebook-source-path notebook-id)))
 
 ;;; ===========================================================================
 ;;; share-notebook
@@ -215,11 +208,9 @@ Returns a plist with keys :public, :url, and :artifact-id."
     (notebooklm-cl.core:rpc-call
      client notebooklm-cl.rpc.types:*share-artifact*
      params
-     :source-path (format nil "/notebook/~A" notebook-id)
+     :source-path (%notebook-source-path notebook-id)
      :allow-null t)
-    (let ((base-url (format nil "~A/notebook/~A"
-                            (get-base-url)
-                            notebook-id)))
+    (let ((base-url (%notebook-url notebook-id)))
       (list :public public
             :url (cond
                    ((and public artifact-id)
@@ -236,9 +227,7 @@ Returns a plist with keys :public, :url, and :artifact-id."
   "Get the share URL for a notebook or artifact.
 This does NOT toggle sharing — just returns the URL format."
   (declare (ignore client))
-  (let ((base-url (format nil "~A/notebook/~A"
-                          (get-base-url)
-                          notebook-id)))
+  (let ((base-url (%notebook-url notebook-id)))
     (if artifact-id
         (format nil "~A?artifactId=~A" base-url artifact-id)
         base-url)))
@@ -252,5 +241,4 @@ This does NOT toggle sharing — just returns the URL format."
 Note: full source listing depends on Module 3 (sources.lisp).
 Currently returns notebook with an empty sources list."
   (let ((notebook (get-notebook client notebook-id)))
-    ;; TODO Module 3: fetch sources list when sources.lisp is implemented
     (make-notebook-metadata :notebook notebook :sources nil)))

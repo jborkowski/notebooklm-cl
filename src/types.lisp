@@ -1,5 +1,40 @@
 (in-package #:notebooklm-cl.types)
 
+;;; ===========================================================================
+;;; Macros — reduce boilerplate for repeated patterns
+;;; ===========================================================================
+
+(defmacro define-status-predicate (name accessor-or-body &optional value)
+  "Define (NAME obj) predicate.  Three-arg form: (= (ACCESSOR obj) VALUE) —
+uses = for numbers, string= for strings.  Two-arg form: BODY is the predicate
+form with 'obj' bound to the argument (for compound predicates)."
+  `(defun ,name (obj)
+     ,(if value
+          (let ((test (cond ((numberp value) '=)
+                            ((stringp value) 'string=)
+                            (t 'eql))))
+            `(,test (,accessor-or-body obj) ,value))
+          accessor-or-body)))
+
+(defmacro define-plist-constructor (name make-fn docstring &rest slots)
+  "Define (NAME data) → MAKE-FN extracting each SLOT from the plist DATA.
+Each SLOT is (keyword &optional default).  When a default is given the getf
+result is wrapped in (or … default)."
+  (let ((args
+         (loop for (key . rest) in slots
+               for default = (first rest)
+               nconc (if default
+                         (list key `(or (getf data ,key) ,default))
+                         (list key `(getf data ,key))))))
+    `(defun ,name (data)
+       ,docstring
+       (,make-fn ,@args))))
+
+(defmacro define-print-object (struct-type (fmt &rest accessors))
+  `(defmethod print-object ((obj ,struct-type) stream)
+     (print-unreadable-object (obj stream :type t)
+       (format stream ,fmt ,@(loop for a in accessors collect `(,a obj))))))
+
 ;;; Helper: simple URL detection (avoids external dependency)
 (defun %url-string-p (s)
   (and s (stringp s)
@@ -113,14 +148,9 @@ Type 4 with variant 1 → flashcards, variant 2 → quiz."
   "Get the user-facing source kind as a string."
   (source-type-code-to-kind (source-type-code src)))
 
-(defun source-is-ready-p (src)
-  (= (source-status src) 2))
-
-(defun source-is-processing-p (src)
-  (= (source-status src) 1))
-
-(defun source-is-error-p (src)
-  (= (source-status src) 3))
+(define-status-predicate source-is-ready-p source-status 2)
+(define-status-predicate source-is-processing-p source-status 1)
+(define-status-predicate source-is-error-p source-status 3)
 
 (defun source-from-api-response (data)
   "Parse a Source from a raw API response list.
@@ -300,23 +330,15 @@ Structure: [title_str, sources_list, id_str, ..., ..., [..., ..., ..., ..., ...,
   "Get the user-facing artifact kind as a string."
   (artifact-type-to-kind (art-artifact-type art) (art-variant art)))
 
-(defun artifact-is-completed-p (art)
-  (= (art-status art) 3))
+(define-status-predicate artifact-is-completed-p art-status 3)
+(define-status-predicate artifact-is-processing-p art-status 1)
+(define-status-predicate artifact-is-pending-p art-status 2)
+(define-status-predicate artifact-is-failed-p art-status 4)
 
-(defun artifact-is-processing-p (art)
-  (= (art-status art) 1))
-
-(defun artifact-is-pending-p (art)
-  (= (art-status art) 2))
-
-(defun artifact-is-failed-p (art)
-  (= (art-status art) 4))
-
-(defun artifact-is-quiz-p (art)
-  (and (= (art-artifact-type art) 4) (= (art-variant art) 2)))
-
-(defun artifact-is-flashcards-p (art)
-  (and (= (art-artifact-type art) 4) (= (art-variant art) 1)))
+(define-status-predicate artifact-is-quiz-p
+    (and (= (art-artifact-type obj) 4) (= (art-variant obj) 2)))
+(define-status-predicate artifact-is-flashcards-p
+    (and (= (art-artifact-type obj) 4) (= (art-variant obj) 1)))
 
 (defun artifact-status-str (art)
   (notebooklm-cl.rpc.types:artifact-status-to-str (art-status art)))
@@ -430,14 +452,9 @@ Position 9 contains options with variant code at [9][1][0]."
   (error-code nil :type (or null string))
   (metadata nil :type list))
 
-(defun generation-is-complete-p (gs)
-  (string= (gen-status gs) "completed"))
-
-(defun generation-is-failed-p (gs)
-  (string= (gen-status gs) "failed"))
-
-(defun generation-is-pending-p (gs)
-  (string= (gen-status gs) "pending"))
+(define-status-predicate generation-is-complete-p gen-status "completed")
+(define-status-predicate generation-is-failed-p gen-status "failed")
+(define-status-predicate generation-is-pending-p gen-status "pending")
 
 (defun generation-status-from-api-response (data)
   "Parse a GenerationStatus from a create-artifact RPC response.
@@ -606,17 +623,16 @@ Limits are at data[0][1] with notebook limit at [1] and source limit at [2]."
   (end-char nil :type (or null integer))
   (chunk-id nil :type (or null string)))
 
-(defun chat-reference-from-api-response (data)
+(define-plist-constructor chat-reference-from-api-response make-chat-reference
   "Parse a ChatReference from parsed chat response citation data.
 data is a plist or alist with keys :source-id, :cited-text, :citation-number,
 :start-char, :end-char, and :chunk-id."
-  (make-chat-reference
-   :source-id (or (getf data :source-id) "")
-   :cited-text (getf data :cited-text)
-   :citation-number (getf data :citation-number)
-   :start-char (getf data :start-char)
-   :end-char (getf data :end-char)
-   :chunk-id (getf data :chunk-id)))
+  (:source-id "")
+  (:cited-text)
+  (:citation-number)
+  (:start-char)
+  (:end-char)
+  (:chunk-id))
 
 ;;; ===========================================================================
 ;;; ConversationTurn
@@ -628,13 +644,12 @@ data is a plist or alist with keys :source-id, :cited-text, :citation-number,
   (turn-number 0 :type integer)
   (references nil :type list))          ; list of chat-reference
 
-(defun conversation-turn-from-api-response (data)
+(define-plist-constructor conversation-turn-from-api-response make-conversation-turn
   "Parse a ConversationTurn from a conversation turn plist."
-  (make-conversation-turn
-   :query (or (getf data :query) "")
-   :answer (or (getf data :answer) "")
-   :turn-number (or (getf data :turn-number) 0)
-   :references (getf data :references)))
+  (:query "")
+  (:answer "")
+  (:turn-number 0)
+  (:references))
 
 ;;; ===========================================================================
 ;;; AskResult
@@ -648,15 +663,14 @@ data is a plist or alist with keys :source-id, :cited-text, :citation-number,
   (references nil :type list)           ; list of chat-reference
   (raw-response "" :type string))
 
-(defun ask-result-from-api-response (data)
+(define-plist-constructor ask-result-from-api-response make-ask-result
   "Parse an AskResult from a chat response plist."
-  (make-ask-result
-   :answer (or (getf data :answer) "")
-   :conversation-id (or (getf data :conversation-id) "")
-   :turn-number (or (getf data :turn-number) 0)
-   :is-follow-up (getf data :is-follow-up)
-   :references (getf data :references)
-   :raw-response (or (getf data :raw-response) "")))
+  (:answer "")
+  (:conversation-id "")
+  (:turn-number 0)
+  (:is-follow-up)
+  (:references)
+  (:raw-response ""))
 
 ;;; ===========================================================================
 ;;; SharedUser
@@ -737,41 +751,25 @@ Format: [[[user_entries]], [is_public], 1000]"
   (prompt "" :type string)
   (audience-level 2 :type integer))
 
-(defun report-suggestion-from-api-response (data)
+(define-plist-constructor report-suggestion-from-api-response make-report-suggestion
   "Parse a ReportSuggestion from the get_suggested_report_formats response item.
 data is a plist with keys :title, :description, :prompt, :audience-level."
-  (make-report-suggestion
-   :title (or (getf data :title) "")
-   :description (or (getf data :description) "")
-   :prompt (or (getf data :prompt) "")
-   :audience-level (or (getf data :audience-level) 2)))
+  (:title "")
+  (:description "")
+  (:prompt "")
+  (:audience-level 2))
 
 ;;; ===========================================================================
 ;;; Print-object methods for readability
 ;;; ===========================================================================
 
-(defmethod print-object ((obj source) stream)
-  (print-unreadable-object (obj stream :type t)
-    (format stream "~A ~S kind=~A status=~D"
-            (source-id obj) (source-title obj)
-            (source-kind obj) (source-status obj))))
-
-(defmethod print-object ((obj notebook) stream)
-  (print-unreadable-object (obj stream :type t)
-    (format stream "~A ~S sources=~D"
-            (notebook-id obj) (notebook-title obj)
-            (notebook-sources-count obj))))
-
-(defmethod print-object ((obj artifact) stream)
-  (print-unreadable-object (obj stream :type t)
-    (format stream "~A ~S kind=~A status=~D"
-            (art-id obj) (art-title obj)
-            (artifact-kind obj) (art-status obj))))
-
-(defmethod print-object ((obj generation-status) stream)
-  (print-unreadable-object (obj stream :type t)
-    (format stream "~A ~A" (gen-task-id obj) (gen-status obj))))
-
-(defmethod print-object ((obj note) stream)
-  (print-unreadable-object (obj stream :type t)
-    (format stream "~A ~S" (note-id obj) (note-title obj))))
+(define-print-object source
+    ("~A ~S kind=~A status=~D" source-id source-title source-kind source-status))
+(define-print-object notebook
+    ("~A ~S sources=~D" notebook-id notebook-title notebook-sources-count))
+(define-print-object artifact
+    ("~A ~S kind=~A status=~D" art-id art-title artifact-kind art-status))
+(define-print-object generation-status
+    ("~A ~A" gen-task-id gen-status))
+(define-print-object note
+    ("~A ~S" note-id note-title))

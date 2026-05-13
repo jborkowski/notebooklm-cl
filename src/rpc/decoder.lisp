@@ -1,5 +1,31 @@
 (in-package #:notebooklm-cl.rpc.decoder)
 
+(defmacro do-rpc-items ((item chunks) &body body)
+  "Iterate over ITEM in each CHUNKS entry, normalising each chunk to a list.
+The RPC response delivers each chunk as a list of items; when the chunk itself
+contains sub-lists the first atomic element is the chunk wrapper — unwrap it."
+  `(dolist (chunk ,chunks)
+     (dolist (,item (if (and (consp chunk) (consp (first chunk))) chunk (list chunk)))
+       ,@body)))
+
+(defmacro do-matched-rpc-items ((kind-var id-var) (item-var chunks rpc-id &key min-length) &body body)
+  "Iterate over RPC response chunks, bind KIND-VAR / ID-VAR from each item,
+filtering to items where id matches RPC-ID.  MIN-LENGTH guards item length (default 3)."
+  `(do-rpc-items (,item-var ,chunks)
+     (when (and (consp ,item-var) (>= (length ,item-var) ,(or min-length 3)))
+       (let ((,kind-var (first ,item-var))
+             (,id-var (second ,item-var)))
+         (when (string= ,id-var ,rpc-id)
+           ,@body)))))
+
+(defun %signal-rpc-error (condition-type rpc-id &key rpc-code found-ids raw-response)
+  "Signal an RPC-derived condition with the common slots filled."
+  (error condition-type
+         :method-id rpc-id
+         :rpc-code rpc-code
+         :found-ids found-ids
+         :raw-response raw-response))
+
 (defvar *grpc-status-messages*
   '((0 . "OK") (1 . "Cancelled") (2 . "Unknown") (3 . "Invalid argument")
     (4 . "Deadline exceeded") (5 . "Not found") (6 . "Already exists")
@@ -38,13 +64,13 @@
     (nreverse chunks)))
 
 (defun collect-rpc-ids (chunks)
-  (loop for chunk in chunks
-        for items = (if (and (consp chunk) (consp (first chunk))) chunk (list chunk))
-        nconc (loop for item in items
-                    when (and (consp item) (>= (length item) 2)
-                              (member (first item) '("wrb.fr" "er") :test #'string=)
-                              (stringp (second item)))
-                    collect (second item))))
+  (let ((ids nil))
+    (do-rpc-items (item chunks)
+      (when (and (consp item) (>= (length item) 2)
+                 (member (first item) '("wrb.fr" "er") :test #'string=)
+                 (stringp (second item)))
+        (push (second item) ids)))
+    (nreverse ids)))
 
 (defun contains-user-displayable-error-p (obj)
   (typecase obj
@@ -61,43 +87,32 @@
           (cdr (assoc (first error-info) *grpc-status-messages*)))))
 
 (defun find-wrb-status (chunks rpc-id)
-  (dolist (chunk chunks)
-    (dolist (item (if (and (consp chunk) (consp (first chunk))) chunk (list chunk)))
-      (when (and (consp item) (>= (length item) 6))
-        (destructuring-bind (kind id result nil nil error-info) item
-          (declare (ignore result))
-          (when (and (string= kind "wrb.fr")
-                     (string= id rpc-id)
-                     error-info)
-            (let ((status (extract-status-code error-info)))
-              (when status (return-from find-wrb-status status)))))))))
+  (do-matched-rpc-items (kind id) (item chunks rpc-id :min-length 6)
+    (when (string= kind "wrb.fr")
+      (destructuring-bind (nil nil nil nil nil error-info) item
+        (when error-info
+          (let ((status (extract-status-code error-info)))
+            (when status (return-from find-wrb-status status))))))))
 
 (defun extract-rpc-result (chunks rpc-id)
-  (dolist (chunk chunks)
-    (dolist (item (if (and (consp chunk) (consp (first chunk))) chunk (list chunk)))
-      (when (and (consp item) (>= (length item) 3))
-        (let ((kind (first item))
-              (id (second item)))
-          (when (string= id rpc-id)
-            (cond
-              ((string= kind "er")
-               (error 'notebooklm-cl.errors:rpc-error
+  (do-matched-rpc-items (kind id) (item chunks rpc-id)
+    (cond
+      ((string= kind "er")
+       (%signal-rpc-error 'notebooklm-cl.errors:rpc-error rpc-id :rpc-code (third item)))
+      ((string= kind "wrb.fr")
+       (let ((result (third item)))
+         (when (and (null result) (>= (length item) 6))
+           (let ((error-info (sixth item)))
+             (when (and (consp error-info)
+                        (contains-user-displayable-error-p error-info))
+               (error 'notebooklm-cl.errors:rate-limit-error
                       :method-id rpc-id
-                      :rpc-code (third item)))
-              ((string= kind "wrb.fr")
-               (let ((result (third item)))
-                 (when (and (null result) (>= (length item) 6))
-                   (let ((error-info (sixth item)))
-                     (when (and (consp error-info)
-                                (contains-user-displayable-error-p error-info))
-                       (error 'notebooklm-cl.errors:rate-limit-error
-                              :method-id rpc-id
-                              :rpc-code "USER_DISPLAYABLE_ERROR"))))
-                 (if (stringp result)
-                     (handler-case (return-from extract-rpc-result
-                                     (cl-json:decode-json-from-string result))
-                       (error () (return-from extract-rpc-result result)))
-                     (return-from extract-rpc-result result))))))))))
+                      :rpc-code "USER_DISPLAYABLE_ERROR"))))
+         (if (stringp result)
+             (handler-case (return-from extract-rpc-result
+                             (cl-json:decode-json-from-string result))
+               (error () (return-from extract-rpc-result result)))
+             (return-from extract-rpc-result result))))))
   nil)
 
 (defun decode-response (raw-response rpc-id &key allow-null)
@@ -110,32 +125,16 @@
           (when (and (null result) (not allow-null))
             (cond
               ((and found-ids (not (member rpc-id found-ids :test #'string=)))
-               (error 'notebooklm-cl.errors:rpc-error
-                      :method-id rpc-id
-                      :found-ids found-ids
-                      :raw-response preview))
+               (%signal-rpc-error 'rpc-error rpc-id :found-ids found-ids :raw-response preview))
               ((member rpc-id found-ids :test #'string=)
                (let ((status (find-wrb-status chunks rpc-id)))
                  (if status
-                     (if (member (car status) '(5 7))
-                         (error 'notebooklm-cl.errors:client-error
-                                :method-id rpc-id
-                                :rpc-code (car status)
-                                :found-ids found-ids
-                                :raw-response preview)
-                         (error 'notebooklm-cl.errors:rpc-error
-                                :method-id rpc-id
-                                :rpc-code (car status)
-                                :found-ids found-ids
-                                :raw-response preview))
-                     (error 'notebooklm-cl.errors:rpc-error
-                            :method-id rpc-id
-                            :found-ids found-ids
-                            :raw-response preview))))
+                     (%signal-rpc-error
+                      (if (member (car status) '(5 7)) 'client-error 'rpc-error)
+                      rpc-id :rpc-code (car status) :found-ids found-ids :raw-response preview)
+                     (%signal-rpc-error 'rpc-error rpc-id :found-ids found-ids :raw-response preview))))
               (t
-               (error 'notebooklm-cl.errors:rpc-error
-                      :method-id rpc-id
-                      :raw-response preview))))
+               (%signal-rpc-error 'rpc-error rpc-id :raw-response preview))))
           result)
       (notebooklm-cl.errors:rpc-error (e)
         (unless (notebooklm-cl.errors:rpc-error-found-ids e)
