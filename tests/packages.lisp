@@ -1,5 +1,6 @@
 (defpackage #:notebooklm-cl.tests
   (:use #:cl #:parachute)
+  (:export #:run-tests #:test-suite)
   (:import-from #:notebooklm-cl.util
                 #:url-encode #:starts-with-p #:ends-with-p)
   (:import-from #:notebooklm-cl.rpc.types

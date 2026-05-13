@@ -171,12 +171,12 @@ Handles deeply-nested [[[['id'], 'title', metadata]]], medium-nested
         ;; Check if medium nested: data[0][0] is a string or list...
         ;; Actually: medium nested is [[['id'], 'title', metadata], ...]
         ;; data[0] = ['id']→string, or data[0][0] = list with string
+        ;; Medium nested: data is the entry itself: [['id'], 'title', metadata]
+        ;; Check: (first entry) is a list containing a string (the id)
         (if (and (listp (first data))
-                 (or (stringp (first (first data)))
-                     (and (listp (first (first data)))
-                          (stringp (first (first (first data)))))))
-            ;; Medium nested
-            (let* ((entry (first data))
+                 (stringp (first (first data))))
+            ;; Medium nested — data IS the entry
+            (let* ((entry data)
                    (id (if (stringp (first entry))
                            (first entry)
                            (extract-first-string (first entry))))
@@ -446,7 +446,10 @@ Status code is at [0][4]."
   (if (and data (listp data) data (listp (first data)))
       (let* ((artifact-data (first data))
              (task-id (if (and artifact-data (listp artifact-data) artifact-data)
-                          (princ-to-string (first artifact-data)) ""))
+                          (if (listp (first artifact-data))
+                              (princ-to-string (first (first artifact-data)))
+                              (princ-to-string (first artifact-data)))
+                          ""))
              (status-code (if (and artifact-data (>= (length artifact-data) 5))
                               (fifth artifact-data) nil))
              (status (if status-code

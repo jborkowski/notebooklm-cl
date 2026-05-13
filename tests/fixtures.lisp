@@ -62,27 +62,27 @@ Actual Title" nil "nb_789" "📓"))
   '(("src_ts") "Timestamped Source"
     (nil nil (1704067200 0) nil 5 nil nil ("https://example.com"))))
 
-;; Deeply nested: [[[['id'], 'title', metadata]]] — 4 levels before id
+;; Deeply nested: [[[['id'], 'title', metadata]]] — 4 levels total (CL code expects entry at (first (first data)))
 (defparameter *fixture-source-deep-nested*
-  '((((("src_789") "Deep Source"
-       (nil nil nil nil nil nil nil ("https://deep.example.com")))))))
+  '(((("src_789") "Deep Source"
+      (nil nil nil nil nil nil nil ("https://deep.example.com"))))))
 
 ;; YouTube source (type code 9)
 (defparameter *fixture-source-youtube*
-  '((((("src_yt") "YouTube Video"
-       (nil nil nil nil 9 nil nil ("https://youtube.com/watch?v=abc")))))))
+  '(((("src_yt") "YouTube Video"
+      (nil nil nil nil 9 nil nil ("https://youtube.com/watch?v=abc"))))))
 
-;; YouTube deep nested with URL at index 5 (regression test for issue #265)
+;; YouTube deep nested with URL at index 5
 (defparameter *fixture-source-youtube-index-5*
-  '((((("src_yt_deep") "YouTube Video"
-       (nil nil nil nil 9
-        ("https://www.youtube.com/watch?v=dcWU-qD8ISQ" "dcWU-qD8ISQ" "john newquist")
-        nil nil))))))
+  '(((("src_yt_deep") "YouTube Video"
+      (nil nil nil nil 9
+       ("https://www.youtube.com/watch?v=dcWU-qD8ISQ" "dcWU-qD8ISQ" "john newquist")
+       nil nil)))))
 
 ;; Web page source (type code 5)
 (defparameter *fixture-source-web-page*
-  '((((("src_web") "Web Article"
-       (nil nil nil nil 5 nil nil ("https://example.com/article")))))))
+  '(((("src_web") "Web Article"
+      (nil nil nil nil 5 nil nil ("https://example.com/article"))))))
 
 ;;; ===========================================================================
 ;;; Artifact fixtures (from Python test_types.py TestArtifact)

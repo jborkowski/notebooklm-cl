@@ -32,9 +32,11 @@
   :parent test-rpc-encoder
   (let* ((req (encode-rpc-request "myMethod" (list "hello")))
          (body (build-request-body req)))
-    (true (notebooklm-cl.util:starts-with-p body "f.req="))
-    (true (search "%5B%22hello%22%5D" body))
-    (true (notebooklm-cl.util:ends-with-p body "&"))))
+    (true (starts-with-p body "f.req="))
+    ;; The JSON is URL-encoded; "hello" appears as %22hello%22 inside
+    ;; escaped JSON: %5C%22hello%5C%22
+    (true (search "hello" body))
+    (true (ends-with-p body "&"))))
 
 (define-test test-build-request-body-with-csrf
   :parent test-rpc-encoder

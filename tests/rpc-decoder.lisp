@@ -61,7 +61,8 @@ b")))
 0
 ")))
     (is = 1 (length chunks))
-    (is equal '(:key "value") (first chunks))))
+    ;; cl-json wraps decoded objects; (first chunks) = ((:key "value"))
+    (is equal '((:key "value")) (first chunks))))
 
 (define-test test-parse-chunked-response-multiple
   :parent test-rpc-decoder

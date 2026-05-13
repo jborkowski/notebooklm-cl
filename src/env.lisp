@@ -5,8 +5,12 @@
 (defparameter *allowed-hosts* '("notebooklm.google.com" "notebooklm.cloud.google.com"))
 
 (defun parse-url-host (url)
-  (let* ((after-scheme (subseq url (1+ (position #\/ url :start (+ 2 (length "https://"))))))
-         (host-end (or (position #\/ after-scheme) (position #\? after-scheme) (position #\# after-scheme) (length after-scheme)))
+  (let* ((scheme-end (position #\: url))
+         (after-scheme (subseq url (+ scheme-end 3)))  ; skip "://"
+         (host-end (or (position #\/ after-scheme)
+                       (position #\? after-scheme)
+                       (position #\# after-scheme)
+                       (length after-scheme)))
          (host-part (subseq after-scheme 0 host-end))
          (colon (position #\: host-part)))
     (if colon (subseq host-part 0 colon) host-part)))

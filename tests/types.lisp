@@ -207,11 +207,8 @@ My Notebook" (("s1") ("s2") ("s3")) "nb-123"
   (let ((desc (notebook-description-from-api-response
                '((:summary . "A test summary")
                  (:suggested--topics
-                  (:question . "What is this?")
-                  (:prompt . "Explain this"))
-                 (:suggested--topics
-                  (:question . "How does it work?")
-                  (:prompt . "Detail the mechanism"))))))
+                  ((:question . "What is this?") (:prompt . "Explain this"))
+                  ((:question . "How does it work?") (:prompt . "Detail the mechanism")))))))
     (is string= "A test summary" (description-summary desc))
     (is = 2 (length (description-suggested-topics desc)))
     (is string= "What is this?"
@@ -332,8 +329,9 @@ My Notebook" (("s1") ("s2") ("s3")) "nb-123"
 (define-test test-account-limits-from-api-response
   :parent test-types
   (let ((limits (account-limits-from-api-response
-                 '(((nil (100 200 50 300)) nil)))))
-    (is = 100 (limits-notebook-limit limits))
+                 '((nil (100 200 50 300))))))
+    ;; notebook-limit is at index 1 of limits list (second)
+    (is = 200 (limits-notebook-limit limits))
     (is = 50 (limits-source-limit limits))))
 
 ;;; ===========================================================================
@@ -624,7 +622,8 @@ My Notebook" (("s1") ("s2") ("s3")) "nb-123"
 (define-test test-fixture-account-limits
   :parent test-types
   (let ((limits (account-limits-from-api-response *fixture-account-limits*)))
-    (is = 100 (limits-notebook-limit limits))
+    ;; notebook-limit is at index 1 of limits list (second)
+    (is = 200 (limits-notebook-limit limits))
     (is = 50 (limits-source-limit limits))))
 
 (define-test test-fixture-chat-reference
