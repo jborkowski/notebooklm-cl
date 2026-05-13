@@ -9,7 +9,8 @@
   (:use #:cl)
   (:export #:url-encode
            #:starts-with-p
-           #:ends-with-p))
+           #:ends-with-p
+           #:%nths))
 
 (defpackage #:notebooklm-cl.errors
   (:use #:cl)
@@ -120,6 +121,8 @@
   (:use #:cl)
   (:import-from #:notebooklm-cl.env
                 #:get-base-url)
+  (:import-from #:notebooklm-cl.util
+                #:%nths)
   (:import-from #:notebooklm-cl.rpc.types
                 #:artifact-status-to-str
                 #:source-status-to-str)

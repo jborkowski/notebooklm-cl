@@ -183,24 +183,19 @@ Handles deeply-nested [[[['id'], 'title', metadata]]], medium-nested
              (first x)
              nil))
        (extract-url (metadata)
-         (when (and (listp metadata) (>= (length metadata) 8))
-           (let ((url-list (nth 7 metadata)))
-             (when (and (listp url-list) url-list (stringp (first url-list)))
-               (return-from extract-url (first url-list)))))
-         (when (and (listp metadata) (>= (length metadata) 6))
-           (let ((yt-data (nth 5 metadata)))
-             (when (and (listp yt-data) yt-data (stringp (first yt-data)))
-               (return-from extract-url (first yt-data)))))
+         (let ((url (%nths metadata 7 0)))
+           (when (stringp url)
+             (return-from extract-url url)))
+         (let ((url (%nths metadata 5 0)))
+           (when (stringp url)
+             (return-from extract-url url)))
          nil)
        (extract-type-code (metadata)
-         (when (and (listp metadata) (>= (length metadata) 5)
-                    (integerp (fifth metadata)))
-           (fifth metadata)))
+         (let ((tc (%nths metadata 4)))
+           (when (integerp tc) tc)))
        (extract-created-at (metadata)
-         (when (and (listp metadata) (>= (length metadata) 3))
-           (let ((ts-list (third metadata)))
-             (when (and (listp ts-list) ts-list (numberp (first ts-list)))
-               (parse-timestamp (first ts-list))))))
+         (let ((ts (%nths metadata 2 0)))
+           (when (numberp ts) (parse-timestamp ts))))
        ;; Normalize the three nesting shapes to a single entry.
        (resolve-entry ()
          (cond
@@ -218,19 +213,16 @@ Handles deeply-nested [[[['id'], 'title', metadata]]], medium-nested
     (let ((entry (resolve-entry)))
       (if entry
           (let* ((id (extract-first-string (first entry)))
-                 (title (if (and (>= (length entry) 2) (stringp (second entry)))
-                            (second entry) nil))
-                 (metadata (if (and (>= (length entry) 3) (listp (third entry)))
-                               (third entry) nil)))
+                 (title (if (stringp (%nths entry 1)) (%nths entry 1) nil))
+                 (metadata (%nths entry 2)))
             (make-source :id (or id "")
                          :title title
                          :url (extract-url metadata)
                          :type-code (extract-type-code metadata)
                          :created-at (extract-created-at metadata)))
           ;; Flat format: [id, title]
-          (let ((id (if (and data (stringp (first data))) (first data) ""))
-                (title (if (and (>= (length data) 2) (stringp (second data)))
-                           (second data) nil)))
+          (let ((id (if (stringp (%nths data 0)) (%nths data 0) ""))
+                (title (if (stringp (%nths data 1)) (%nths data 1) nil)))
             (make-source :id id :title title))))))
 
 ;;; ===========================================================================
@@ -247,25 +239,21 @@ Handles deeply-nested [[[['id'], 'title', metadata]]], medium-nested
 (defun notebook-from-api-response (data)
   "Parse a Notebook from a raw API response list.
 Structure: [title_str, sources_list, id_str, ..., ..., [..., ..., ..., ..., ..., [ts]]]"
-  (let* ((raw-title (if (and (>= (length data) 1) (stringp (first data)))
-                        (first data) ""))
+  (let* ((raw-title (if (stringp (%nths data 0)) (%nths data 0) ""))
          (title (strip-thought-newline raw-title))
-         (sources-list (if (>= (length data) 2) (second data) nil))
+         (sources-list (%nths data 1))
          (sources-count (if (listp sources-list) (length sources-list) 0))
-         (id (if (and (>= (length data) 3) (stringp (third data)))
-                 (third data) ""))
+         (id (if (stringp (%nths data 2)) (%nths data 2) ""))
          (created-at nil)
          (is-owner t))
     ;; data[5] structure: [..., is_shared_flag, ..., ..., ..., [ts]]
-    (when (and (>= (length data) 6) (listp (sixth data)))
-      (let ((meta (sixth data)))
-        (when (and (>= (length meta) 2))
-          ;; data[5][1] = False means owner, True means shared
-          (setf is-owner (not (second meta))))
-        (when (and (>= (length meta) 6) (listp (sixth meta)))
-          (let ((ts-list (sixth meta)))
-            (when (and ts-list (numberp (first ts-list)))
-              (setf created-at (parse-timestamp (first ts-list))))))))
+    (let ((meta (%nths data 5)))
+      (when meta
+        ;; data[5][1] = False means owner, True means shared
+        (setf is-owner (not (%nths meta 1)))
+        (let ((ts (%nths meta 5 0)))
+          (when (numberp ts)
+            (setf created-at (parse-timestamp ts))))))
     (make-notebook :id id
                    :title title
                    :is-owner is-owner
@@ -371,34 +359,34 @@ Phase 2: fallback to the first HTTP URL found."
 
 (defun %extract-audio-url (data)
   "Extract audio download URL from artifact data at data[6][5][*][0]."
-  (when (and (>= (length data) 7) (listp (sixth data)))
-    (let ((media-container (sixth data)))
-      (when (and (>= (length media-container) 6) (listp (nth 5 media-container)))
-        (%find-media-url (list (nth 5 media-container)) "audio/mp4")))))
+  (let ((media-container (%nths data 5)))  ; data[5] (0-indexed)
+    (when media-container
+      (let ((media-list (%nths media-container 5)))
+        (when media-list
+          (%find-media-url (list media-list) "audio/mp4"))))))
 
 (defun %extract-video-url (data)
   "Extract video download URL from artifact data at data[8][*][*][0]."
-  (when (and (>= (length data) 9) (listp (nth 8 data)))
-    (%find-media-url (nth 8 data) "video/mp4")))
+  (let ((media-lists (%nths data 8)))
+    (when media-lists
+      (%find-media-url media-lists "video/mp4"))))
 
 (defun %extract-infographic-url (data)
   "Extract infographic download URL from artifact data."
   (dolist (item data)
-    (when (and (listp item) (>= (length item) 3))
-      (let ((content (third item)))
-        (when (and (listp content) content (listp (first content))
-                   (>= (length (first content)) 2))
-          (let ((img-data (second (first content))))
-            (when (and (listp img-data) img-data (%url-string-p (first img-data)))
-              (return-from %extract-infographic-url (first img-data))))))))
+    (when (listp item)
+      (let ((content (%nths item 2)))
+        (when (listp content)
+          (let* ((inner (first content))
+                 (img-data (%nths inner 1)))
+            (when (and (listp img-data) (%url-string-p (%nths img-data 0)))
+              (return-from %extract-infographic-url (%nths img-data 0))))))))
   nil)
 
 (defun %extract-slide-deck-pdf-url (data)
   "Extract slide deck PDF URL from artifact data at data[16][3]."
-  (when (and (>= (length data) 17) (listp (nth 16 data)))
-    (let ((meta (nth 16 data)))
-      (when (and (>= (length meta) 4) (%url-string-p (nth 3 meta)))
-        (nth 3 meta)))))
+  (let ((url (%nths data 16 3)))
+    (when (%url-string-p url) url)))
 
 (defun %extract-artifact-url (data atype)
   "Extract a public download URL from known artifact response shapes."
@@ -413,25 +401,21 @@ Phase 2: fallback to the first HTTP URL found."
   "Parse an Artifact from a raw API response list.
 Structure: [id, title, type, ..., status, ..., metadata, ...]
 Position 9 contains options with variant code at [9][1][0]."
-  (let* ((id (if (and (>= (length data) 1)) (princ-to-string (first data)) ""))
-         (title (if (and (>= (length data) 2) (stringp (second data)))
-                    (second data) ""))
-         (atype (if (>= (length data) 3) (third data) 0))
-         (status (if (>= (length data) 5) (fifth data) 0))
+  (let* ((id (if (%nths data 0) (princ-to-string (%nths data 0)) ""))
+         (title (if (stringp (%nths data 1)) (%nths data 1) ""))
+         (atype (or (%nths data 2) 0))
+         (status (or (%nths data 4) 0))
          (created-at nil)
          (variant nil)
          (url nil))
     ;; Extract timestamp from data[15][0]
-    (when (and (>= (length data) 16) (listp (nth 15 data)))
-      (let ((ts-list (nth 15 data)))
-        (when (and ts-list (numberp (first ts-list)))
-          (setf created-at (parse-timestamp (first ts-list))))))
+    (let ((ts (%nths data 15 0)))
+      (when (numberp ts)
+        (setf created-at (parse-timestamp ts))))
     ;; Extract variant from data[9][1][0]
-    (when (and (>= (length data) 10) (listp (nth 9 data)))
-      (let ((options (nth 9 data)))
-        (when (and (>= (length options) 2) (listp (second options))
-                   (second options) (numberp (first (second options))))
-          (setf variant (first (second options))))))
+    (let ((v (%nths data 9 1 0)))
+      (when (numberp v)
+        (setf variant v)))
     ;; Extract download URL
     (setf url (%extract-artifact-url data atype))
     (make-artifact :id id
@@ -462,15 +446,13 @@ Position 9 contains options with variant code at [9][1][0]."
   "Parse a GenerationStatus from a create-artifact RPC response.
 The API returns a single ID at [0][0] that serves as both task_id and artifact_id.
 Status code is at [0][4]."
-  (if (and data (listp data) data (listp (first data)))
+  (if (and data (listp data) (listp (first data)))
       (let* ((artifact-data (first data))
-             (task-id (if (and artifact-data (listp artifact-data) artifact-data)
-                          (if (listp (first artifact-data))
-                              (princ-to-string (first (first artifact-data)))
-                              (princ-to-string (first artifact-data)))
-                          ""))
-             (status-code (if (and artifact-data (>= (length artifact-data) 5))
-                              (fifth artifact-data) nil))
+             (task-id (let ((id0 (%nths artifact-data 0)))
+                        (if (listp id0)
+                            (princ-to-string (%nths id0 0))
+                            (princ-to-string id0))))
+             (status-code (%nths artifact-data 4))
              (status (if status-code
                          (notebooklm-cl.rpc.types:artifact-status-to-str status-code)
                          "failed")))
@@ -493,16 +475,13 @@ Status code is at [0][4]."
 (defun note-from-api-response (data notebook-id)
   "Parse a Note from a raw API response list.
 Structure: [id, title, content, [ts], ...]"
-  (let* ((id (if (and (>= (length data) 1)) (princ-to-string (first data)) ""))
-         (title (if (and (>= (length data) 2) (stringp (second data)))
-                    (second data) ""))
-         (content (if (and (>= (length data) 3) (stringp (third data)))
-                      (third data) ""))
+  (let* ((id (if (%nths data 0) (princ-to-string (%nths data 0)) ""))
+         (title (if (stringp (%nths data 1)) (%nths data 1) ""))
+         (content (if (stringp (%nths data 2)) (%nths data 2) ""))
          (created-at nil))
-    (when (and (>= (length data) 4) (listp (fourth data)) (fourth data))
-      (let ((ts (first (fourth data))))
-        (when (numberp ts)
-          (setf created-at (parse-timestamp ts)))))
+    (let ((ts (%nths data 3 0)))
+      (when (numberp ts)
+        (setf created-at (parse-timestamp ts))))
     (make-note :id id
                :notebook-id notebook-id
                :title title
@@ -533,26 +512,28 @@ Plaintext content at result[3][0]; markdown at result[4][1]."
         (type-code nil)
         (url nil)
         (content ""))
-    (when (and data (listp data) data (listp (first data)))
+    (when (and data (listp data) (listp (first data)))
       (let ((header (first data)))
-        (when (and (>= (length header) 2) (stringp (second header)))
-          (setf title (second header)))
-        (when (and (>= (length header) 3) (listp (third header)))
-          (let ((metadata (third header)))
-            (when (>= (length metadata) 5)
-              (setf type-code (fifth metadata)))
-            ;; Try metadata[7] then metadata[5] for URL
-            (when (and (>= (length metadata) 8) (listp (nth 7 metadata))
-                       (nth 7 metadata) (stringp (first (nth 7 metadata))))
-              (setf url (first (nth 7 metadata))))
+        (let ((h1 (%nths header 1)))
+          (when (stringp h1)
+            (setf title h1)))
+        (let ((metadata (%nths header 2)))
+          (when metadata
+            (let ((tc (%nths metadata 4)))
+              (when (integerp tc)
+                (setf type-code tc)))
+            ;; Try metadata[7][0] then metadata[5][0] for URL
+            (let ((u (%nths metadata 7 0)))
+              (when (stringp u)
+                (setf url u)))
             (unless url
-              (when (and (>= (length metadata) 6) (listp (nth 5 metadata))
-                         (nth 5 metadata) (stringp (first (nth 5 metadata))))
-                (setf url (first (nth 5 metadata))))))))
+              (let ((u (%nths metadata 5 0)))
+                (when (stringp u)
+                  (setf url u)))))))
       ;; Plaintext content at result[3][0]
-      (when (and (>= (length data) 4) (listp (nth 3 data))
-                 (nth 3 data) (listp (first (nth 3 data))))
-        (setf content (format nil "~{~A~^~%~}" (%extract-all-text (first (nth 3 data)))))))
+      (let ((content-blocks (%nths data 3 0)))
+        (when content-blocks
+          (setf content (format nil "~{~A~^~%~}" (%extract-all-text content-blocks))))))
     (make-source-fulltext :source-id source-id
                           :title title
                           :content content
@@ -596,19 +577,16 @@ Limits are at data[0][1] with notebook limit at [1] and source limit at [2]."
   (let ((notebook-limit nil)
         (source-limit nil)
         (raw-limits nil))
-    (when (and data (listp data) data (listp (first data))
-               (>= (length (first data)) 2))
-      (let ((limits-list (second (first data))))
+    (when (and data (listp data) (listp (first data)))
+      (let ((limits-list (%nths data 0 1)))
         (when (listp limits-list)
           (setf raw-limits (copy-list limits-list))
-          (when (and (>= (length limits-list) 2) (integerp (second limits-list))
-                     (not (typep (second limits-list) 'boolean))
-                     (> (second limits-list) 0))
-            (setf notebook-limit (second limits-list)))
-          (when (and (>= (length limits-list) 3) (integerp (third limits-list))
-                     (not (typep (third limits-list) 'boolean))
-                     (> (third limits-list) 0))
-            (setf source-limit (third limits-list))))))
+          (let ((nl (%nths limits-list 1)))
+            (when (and (integerp nl) (not (typep nl 'boolean)) (> nl 0))
+              (setf notebook-limit nl)))
+          (let ((sl (%nths limits-list 2)))
+            (when (and (integerp sl) (not (typep sl 'boolean)) (> sl 0))
+              (setf source-limit sl))))))
     (make-account-limits :notebook-limit notebook-limit
                          :source-limit source-limit
                          :raw-limits raw-limits)))
@@ -687,18 +665,14 @@ data is a plist or alist with keys :source-id, :cited-text, :citation-number,
 (defun shared-user-from-api-response (data)
   "Parse a SharedUser from API response entry.
 Format: [email, permission, [], [name, avatar]]"
-  (let* ((email (if (and data (stringp (first data))) (first data) ""))
-         (permission (if (and (>= (length data) 2) (integerp (second data)))
-                         (second data) 3))
+  (let* ((email (if (stringp (%nths data 0)) (%nths data 0) ""))
+         (permission (let ((p (%nths data 1))) (if (integerp p) p 3)))
          (name nil)
          (photo-url nil))
-    (when (and (>= (length data) 4) (listp (fourth data)))
-      (let ((user-info (fourth data)))
-        (when user-info
-          (setf name (if (and user-info (stringp (first user-info)))
-                         (first user-info) nil))
-          (setf photo-url (if (and (>= (length user-info) 2) (stringp (second user-info)))
-                              (second user-info) nil)))))
+    (let ((user-info (%nths data 3)))
+      (when user-info
+        (let ((n (%nths user-info 0))) (when (stringp n) (setf name n)))
+        (let ((p (%nths user-info 1))) (when (stringp p) (setf photo-url p)))))
     (make-shared-user :email email
                       :name name
                       :permission permission
@@ -727,8 +701,9 @@ Format: [[[user_entries]], [is_public], 1000]"
         (when (listp user-data)
           (push (shared-user-from-api-response user-data) users))))
     ;; Parse is_public from [1]
-    (when (and (>= (length data) 2) (listp (second data)) (second data))
-      (setf is-public (not (null (first (second data))))))
+    (let ((pub-data (%nths data 1)))
+      (when pub-data
+        (setf is-public (not (null (first pub-data))))))
     (let ((access (if is-public 1 0))
           (view-level 0)
           (share-url (if is-public

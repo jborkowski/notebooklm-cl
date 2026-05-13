@@ -19,3 +19,17 @@
 (defun ends-with-p (str suffix)
   (and (>= (length str) (length suffix))
        (string= str suffix :start1 (- (length str) (length suffix)))))
+
+(defun %nths (data &rest indices)
+  "Safely navigate nested lists by successive indices.
+Returns NIL when DATA is not a list, any index is out of bounds, or
+any intermediate value is not a list.
+
+Example: (%nths data 3 0) => (nth 0 (nth 3 data)) with full safety.
+Single:   (%nths data 4)  => (nth 4 data) with length guard."
+  (loop with current = data
+        for i in indices
+        do (if (and (listp current) (< i (length current)))
+               (setf current (nth i current))
+               (return nil))
+        finally (return current)))
