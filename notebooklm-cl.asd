@@ -18,7 +18,8 @@
                              (:file "core")
                              (:file "notebooks")
                              (:file "sources")
-                             (:file "artifacts")))))
+                             (:file "artifacts")
+                             (:file "cli")))))
 
 ;;; ===========================================================================
 ;;; Test system
