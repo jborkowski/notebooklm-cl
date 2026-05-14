@@ -114,20 +114,16 @@ Response format: result[0] is a list of [title, desc, nil, nil, prompt, audience
 
 (defun %fetch-notes-items (client notebook-id)
   "Raw rows from GET_NOTES_AND_MIND_MAPS (valid shape only)."
-  (let* ((params (list notebook-id))
-         (result (notebooklm-cl.core:rpc-call
+  (let* ((result (notebooklm-cl.core:rpc-call
                   client notebooklm-cl.rpc.types:*get-notes-and-mind-maps*
-                  params
+                  (list notebook-id)
                   :source-path (%notebook-path notebook-id)
-                  :allow-null t)))
-    (when (and result (listp result) (plusp (length result))
-               (listp (first result)))
-      (let ((notes-list (first result))
-            (out '()))
-        (dolist (item notes-list)
-          (when (and (listp item) (plusp (length item)) (stringp (first item)))
-            (push item out)))
-        (nreverse out)))))
+                  :allow-null t))
+         (notes-list (notebooklm-cl.util:%nths result 0)))
+    (when (listp notes-list)
+      (loop for item in notes-list
+            when (and (listp item) (plusp (length item)) (stringp (first item)))
+            collect item))))
 
 (defun %list-mind-maps (client notebook-id)
   "Mind-map rows only (excludes deleted); mirrors NotesAPI.list_mind_maps."
