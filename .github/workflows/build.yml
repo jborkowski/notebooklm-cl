@@ -11,6 +11,8 @@ jobs:
         include:
           - os: macos-14
             arch: arm64
+          - os: ubuntu-24.04-arm
+            arch: arm64
           - os: ubuntu-latest
             arch: amd64
 
@@ -19,24 +21,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install SBCL
+      - name: Install deps
         run: |
-          if [ "${{ matrix.os }}" = "macos-14" ]; then
-            brew install sbcl
-          else
-            sudo apt-get update && sudo apt-get install -y sbcl
-          fi
+          case "${{ matrix.os }}" in
+            macos-14) brew install sbcl ;;
+            ubuntu-*)
+              sudo apt-get update
+              sudo apt-get install -y sbcl libssl-dev
+              ;;
+          esac
 
       - name: Build
         run: |
           sbcl --non-interactive \
             --eval '(progn (load "notebooklm-cl.asd") (asdf:load-system :notebooklm-cl))' \
-            --eval "(sb-ext:save-lisp-and-die \"notebooklm-${{ matrix.os }}-${{ matrix.arch }}\"
-                      :executable t :compression t
-                      :toplevel #'notebooklm-cl.cli:main :purify t)"
+            --eval '(sb-ext:save-lisp-and-die "notebooklm" :executable t :compression t :toplevel (quote notebooklm-cl.cli:main) :purify t)'
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: notebooklm-${{ matrix.os }}-${{ matrix.arch }}
-          path: notebooklm-${{ matrix.os }}-${{ matrix.arch }}
+          path: notebooklm
