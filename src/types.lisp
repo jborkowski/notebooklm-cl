@@ -706,30 +706,23 @@ Format: [email, permission, [], [name, avatar]]"
 (defun share-status-from-api-response (data notebook-id)
   "Parse a ShareStatus from GET_SHARE_STATUS response.
 Format: [[[user_entries]], [is_public], 1000]"
-  (let* ((users '())
-         (is-public nil))
-    ;; Parse users from [0]
-    (when (and data (listp (first data)))
-      (dolist (user-data (first data))
-        (when (listp user-data)
-          (push (shared-user-from-api-response user-data) users))))
-    ;; Parse is_public from [1]
-    (let ((pub-data (%nths data 1)))
-      (when pub-data
-        (setf is-public (not (null (first pub-data))))))
-    (let ((access (if is-public 1 0))
-          (view-level 0)
-          (share-url (if is-public
-                         (format nil "~A/notebook/~A"
-                                 (notebooklm-cl.env:get-base-url)
-                                 notebook-id)
-                         nil)))
-      (make-share-status :notebook-id notebook-id
-                         :public is-public
-                         :access-level access
-                         :view-level view-level
-                         :users (nreverse users)
-                         :share-url share-url))))
+  (let* ((users-data (%nths data 0))
+         (pub-data (%nths data 1))
+         (users (when (listp users-data)
+                  (loop for u in users-data
+                        when (listp u)
+                        collect (shared-user-from-api-response u))))
+         (is-public (and pub-data (not (null (first pub-data)))))
+         (share-url (when is-public
+                      (format nil "~A/notebook/~A"
+                              (notebooklm-cl.env:get-base-url)
+                              notebook-id))))
+    (make-share-status :notebook-id notebook-id
+                       :public is-public
+                       :access-level (if is-public 1 0)
+                       :view-level 0
+                       :users users
+                       :share-url share-url)))
 
 ;;; ===========================================================================
 ;;; ReportSuggestion
