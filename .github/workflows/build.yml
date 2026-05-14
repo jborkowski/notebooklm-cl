@@ -5,50 +5,49 @@ on:
     tags: ['*']
 
 jobs:
-  build:
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install sbcl
+      - run: |
+          curl -O https://beta.quicklisp.org/quicklisp.lisp
+          sbcl --non-interactive --load quicklisp.lisp \
+            --eval '(quicklisp-quickstart:install)' --eval '(quit)'
+      - run: |
+          sbcl --non-interactive --load ~/quicklisp/setup.lisp \
+            --eval '(load "notebooklm-cl.asd")' \
+            --eval '(asdf:load-system :notebooklm-cl)' \
+            --eval '(sb-ext:save-lisp-and-die "notebooklm" :executable t :compression t :toplevel (quote notebooklm-cl.cli:main) :purify t)'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: notebooklm-macos-arm64
+          path: notebooklm
+
+  linux:
     strategy:
       matrix:
         include:
-          - os: macos-14
-            arch: arm64
           - os: ubuntu-24.04-arm
             arch: arm64
           - os: ubuntu-latest
             arch: amd64
-
     runs-on: ${{ matrix.os }}
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install deps
-        run: |
-          case "${{ matrix.os }}" in
-            macos-14) brew install sbcl ;;
-            ubuntu-*)
-              sudo apt-get update
-              sudo apt-get install -y sbcl libssl-dev
-              ;;
-          esac
-
-      - name: Install Quicklisp
-        run: |
-          curl -O https://beta.quicklisp.org/quicklisp.lisp
-          sbcl --non-interactive \
-            --load quicklisp.lisp \
-            --eval '(quicklisp-quickstart:install)' \
-            --eval '(quit)'
-
-      - name: Build
-        run: |
-          sbcl --non-interactive \
-            --load ~/quicklisp/setup.lisp \
+      - run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sbcl libssl-dev curl
+      - run: |
+          curl -sOL https://beta.quicklisp.org/quicklisp.lisp
+          sbcl --non-interactive --load quicklisp.lisp \
+            --eval '(quicklisp-quickstart:install)' --eval '(quit)'
+      - run: |
+          sbcl --non-interactive --load ~/quicklisp/setup.lisp \
             --eval '(load "notebooklm-cl.asd")' \
             --eval '(asdf:load-system :notebooklm-cl)' \
             --eval '(sb-ext:save-lisp-and-die "notebooklm" :executable t :compression t :toplevel (quote notebooklm-cl.cli:main) :purify t)'
-
-      - name: Upload
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: notebooklm-${{ matrix.os }}-${{ matrix.arch }}
+          name: notebooklm-linux-${{ matrix.arch }}
           path: notebooklm
