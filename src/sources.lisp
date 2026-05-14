@@ -201,27 +201,15 @@ branch here via `(LISTP NIL)` ⇒ fresh."
 
 (defun get-source-guide (client notebook-id source-id)
   "Return plist (:summary ... :keywords (...))."
-  (let ((result (notebooklm-cl.core:rpc-call
-                 client notebooklm-cl.rpc.types:*get-source-guide*
-                 (list (list (list (list source-id))))
-                 :source-path (%notebook-path notebook-id)
-                 :allow-null t))
-        (summary "")
-        (keywords nil))
-    (when (and result (listp result) (first result))
-      (let ((outer (first result)))
-        (when (and (listp outer) (first outer))
-          (let ((inner (first outer)))
-            (when (and (listp inner) (> (length inner) 1)
-                       (listp (second inner)) (first (second inner)))
-              (setf summary (if (stringp (first (second inner)))
-                                (first (second inner))
-                                "")))
-            (when (and (listp inner) (> (length inner) 2)
-                       (listp (third inner)) (first (third inner)))
-              (let ((kw (first (third inner))))
-                (setf keywords (if (listp kw) kw nil)))))))
-    (list :summary summary :keywords (or keywords nil))))
+  (let* ((result (notebooklm-cl.core:rpc-call
+                  client notebooklm-cl.rpc.types:*get-source-guide*
+                  (list (list (list (list source-id))))
+                  :source-path (%notebook-path notebook-id)
+                  :allow-null t))
+         (summary-raw (notebooklm-cl.util:%nths result 0 0 1 0))
+         (kw (notebooklm-cl.util:%nths result 0 0 2 0)))
+    (list :summary (if (stringp summary-raw) summary-raw "")
+          :keywords (if (listp kw) kw nil))))
 
 (defun get-source-fulltext (client notebook-id source-id)
   "Plaintext fulltext via GET_SOURCE [2][2] params."
@@ -255,7 +243,7 @@ Matches Python notebooklm-py `[[filename]]` as the first RPC param element."
         (error 'notebooklm-cl.errors:source-add-error
                :label filename
                :message "Failed to get SOURCE_ID from registration response"))
-      sid))))
+      sid)))
 
 (defun start-resumable-upload (client notebook-id filename file-size source-id)
   "POST upload/_/ start → non-nil upload URL string."
