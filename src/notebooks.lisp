@@ -143,29 +143,22 @@ Returns a NOTEBOOK struct."
 (defun get-description (client notebook-id)
   "Get AI-generated summary and suggested topics for a notebook.
 Returns a NOTEBOOK-DESCRIPTION struct."
-  (let* ((result (%summarize-raw client notebook-id))
-         (summary "")
-         (suggested-topics nil))
-    (when (and result (listp result) result)
-      (let ((outer (first result)))
-        (handler-case
-            (when (and (listp outer) outer)
-              (let ((summary-val (first outer)))
-                (when (and (listp summary-val) summary-val)
-                  (setf summary (princ-to-string (first summary-val)))))
-              (when (and (>= (length outer) 2) (listp (second outer)))
-                (let ((topics-list (first (second outer))))
-                  (when (listp topics-list)
-                    (dolist (topic topics-list)
-                      (when (and (listp topic) (>= (length topic) 2))
-                        (push (make-suggested-topic
-                               :question (princ-to-string (or (first topic) ""))
-                               :prompt (princ-to-string (or (second topic) "")))
-                              suggested-topics))))))
-              (setf suggested-topics (nreverse suggested-topics)))
-          (error ()))))
-    (make-notebook-description :summary summary
-                               :suggested-topics suggested-topics)))
+  (let ((result (%summarize-raw client notebook-id)))
+    (handler-case
+        (let* ((summary-raw (notebooklm-cl.util:%nths result 0 0))
+               (topics-list (notebooklm-cl.util:%nths result 1 0))
+               (summary (if summary-raw (princ-to-string summary-raw) ""))
+               (topics
+                 (when (listp topics-list)
+                   (loop for topic in topics-list
+                         when (and (listp topic) (>= (length topic) 2))
+                         collect (make-suggested-topic
+                                  :question (princ-to-string (or (first topic) ""))
+                                  :prompt (princ-to-string (or (second topic) "")))))))
+          (make-notebook-description :summary summary
+                                     :suggested-topics topics))
+      (error ()
+        (make-notebook-description :summary "" :suggested-topics nil)))))
 
 ;;; ===========================================================================
 ;;; remove-from-recent
