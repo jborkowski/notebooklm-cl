@@ -18,6 +18,7 @@ jobs:
           mkdir -p ~/quicklisp/local-projects
           ln -s "$PWD" ~/quicklisp/local-projects/notebooklm-cl
           sbcl --non-interactive \
+            --eval '(load "~/quicklisp/setup.lisp")' \
             --eval '(ql:quickload :notebooklm-cl)' \
             --eval '(sb-ext:save-lisp-and-die "notebooklm" :executable t :compression t :toplevel (quote notebooklm-cl.cli:main) :purify t)'
       - uses: actions/upload-artifact@v4
@@ -47,6 +48,7 @@ jobs:
           mkdir -p ~/quicklisp/local-projects
           ln -s "$PWD" ~/quicklisp/local-projects/notebooklm-cl
           sbcl --non-interactive \
+            --eval '(load "~/quicklisp/setup.lisp")' \
             --eval '(ql:quickload :notebooklm-cl)' \
             --eval '(sb-ext:save-lisp-and-die "notebooklm" :executable t :compression t :toplevel (quote notebooklm-cl.cli:main) :purify t)'
       - uses: actions/upload-artifact@v4
