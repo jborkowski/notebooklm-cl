@@ -52,7 +52,9 @@
   (is string= "in_progress" (artifact-status-to-str 1))
   (is string= "pending" (artifact-status-to-str 2))
   (is string= "completed" (artifact-status-to-str 3))
-  (is string= "failed" (artifact-status-to-str 4)))
+  (is string= "failed" (artifact-status-to-str 4))
+  (is string= "unknown" (artifact-status-to-str 0))
+  (is string= "unknown" (artifact-status-to-str 99)))
 
 (define-test test-source-status-to-str
   :parent test-rpc-types
@@ -95,3 +97,10 @@
   (is = 1 +quiz-easy+)
   (is = 2 +quiz-medium+)
   (is = 3 +quiz-hard+))
+
+(define-test test-report-format-wire-strings
+  :parent test-rpc-types
+  (is string= "briefing_doc" *report-format-briefing-doc*)
+  (is string= "study_guide" *report-format-study-guide*)
+  (is string= "blog_post" *report-format-blog-post*)
+  (is string= "custom" *report-format-custom*))

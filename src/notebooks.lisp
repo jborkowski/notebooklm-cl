@@ -237,8 +237,7 @@ This does NOT toggle sharing — just returns the URL format."
 ;;; ===========================================================================
 
 (defun get-metadata (client notebook-id)
-  "Get notebook metadata with sources list.
-Note: full source listing depends on Module 3 (sources.lisp).
-Currently returns notebook with an empty sources list."
-  (let ((notebook (get-notebook client notebook-id)))
-    (make-notebook-metadata :notebook notebook :sources nil)))
+  "Get notebook metadata with sources list."
+  (let ((notebook (get-notebook client notebook-id))
+        (sources (notebooklm-cl.sources:list-sources client notebook-id)))
+    (make-notebook-metadata :notebook notebook :sources (or sources nil))))

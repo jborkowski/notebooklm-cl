@@ -11,7 +11,9 @@
            #:starts-with-p
            #:ends-with-p
            #:%nths
-           #:with-nested-extract))
+           #:with-nested-extract
+           #:extract-youtube-video-id
+           #:valid-youtube-video-id-p))
 
 (defpackage #:notebooklm-cl.errors
   (:use #:cl)
@@ -39,7 +41,29 @@
            #:notebook-limit-error
            #:notebook-limit-error-current-count
            #:notebook-limit-error-limit
-           #:notebook-limit-error-original))
+           #:notebook-limit-error-original
+           #:source-add-error
+           #:source-add-error-label
+           #:source-add-error-message
+           #:source-add-error-cause
+           #:source-not-found-error
+           #:source-not-found-error-source-id
+           #:source-not-found-error-notebook-id
+           #:artifact-not-ready-error
+           #:artifact-not-ready-error-artifact-type
+           #:artifact-not-ready-error-artifact-id
+           #:artifact-not-found-error
+           #:artifact-not-found-error-artifact-id
+           #:artifact-not-found-error-artifact-type
+           #:artifact-parse-error
+           #:artifact-parse-error-artifact-type
+           #:artifact-parse-error-artifact-id
+           #:artifact-parse-error-details
+           #:artifact-parse-error-cause
+           #:artifact-download-error
+           #:artifact-download-error-artifact-type
+           #:artifact-download-error-artifact-id
+           #:artifact-download-error-details))
 
 (defpackage #:notebooklm-cl.rpc.types
   (:use #:cl)
@@ -116,7 +140,17 @@
            ;; URLs
            #:get-batchexecute-url
            #:get-query-url
-           #:get-upload-url))
+           #:get-upload-url
+           ;; Drive MIME types
+           #:+drive-mime-google-doc+
+           #:+drive-mime-google-slides+
+           #:+drive-mime-google-sheets+
+           #:+drive-mime-pdf+
+           ;; Report formats (wire strings)
+           #:*report-format-briefing-doc*
+           #:*report-format-study-guide*
+           #:*report-format-blog-post*
+           #:*report-format-custom*))
 
 (defpackage #:notebooklm-cl.types
   (:use #:cl)
@@ -160,12 +194,16 @@
    ;; artifact
    #:artifact #:make-artifact #:artifact-p
    #:art-id #:art-title #:art-artifact-type #:art-status
-   #:art-created-at #:art-url #:art-variant
+   #:art-created-at #:art-url #:art-variant #:art-error
    #:artifact-kind #:artifact-is-completed-p #:artifact-is-processing-p
    #:artifact-is-pending-p #:artifact-is-failed-p
    #:artifact-is-quiz-p #:artifact-is-flashcards-p
    #:artifact-status-str
    #:artifact-from-api-response
+   #:artifact-from-mind-map-data
+   #:artifact-row-media-download-ready-p
+   #:artifact-row-download-url
+   #:artifact-row-error-message
    ;; generation-status
    #:generation-status #:make-generation-status #:generation-status-p
    #:gen-task-id #:gen-status #:gen-url #:gen-error #:gen-error-code #:gen-metadata
@@ -236,8 +274,22 @@
 (defpackage #:notebooklm-cl.core
   (:use #:cl)
   (:export #:client-core
-           #:make-client-core
            #:client-core-p
+           #:client-core-auth
+           #:client-core-http
+           #:client-core-timeout
+           #:client-core-connect-timeout
+           #:client-core-refresh-callback
+           #:client-core-reqid-counter
+           #:make-client-core
+           #:auth-tokens
+           #:auth-tokens-p
+           #:auth-tokens-csrf-token
+           #:auth-tokens-session-id
+           #:auth-tokens-account-email
+           #:auth-tokens-authuser
+           #:auth-tokens-cookie-header
+           #:make-auth-tokens
            #:open-client
            #:close-client
            #:client-open-p
@@ -290,6 +342,108 @@
    #:share-notebook
    #:get-share-url
    #:get-metadata))
+
+(defpackage #:notebooklm-cl.sources
+  (:use #:cl)
+  (:import-from #:notebooklm-cl.core
+                #:client-core #:client-core-auth #:client-core-connect-timeout
+                #:client-core-timeout #:rpc-call
+                #:auth-tokens-account-email #:auth-tokens-authuser
+                #:auth-tokens-cookie-header)
+  (:import-from #:notebooklm-cl.types
+                #:source #:make-source #:source-id #:source-from-api-response
+                #:source-fulltext-from-api-response)
+  (:import-from #:notebooklm-cl.util
+                #:extract-youtube-video-id)
+  (:export
+   #:list-sources #:get-source
+   #:add-url #:add-text-source #:add-drive-source
+   #:delete-source #:rename-source #:refresh-source
+   #:check-source-freshness #:source-freshness-fresh-p
+   #:get-source-guide #:get-source-fulltext
+   #:register-file-source #:start-resumable-upload #:upload-file-to-url
+   #:add-file-source
+   #:discover-sources))
+
+(defpackage #:notebooklm-cl.artifacts
+  (:use #:cl)
+  (:import-from #:notebooklm-cl.core
+                #:client-core #:rpc-call)
+  (:import-from #:notebooklm-cl.sources
+                #:list-sources)
+  (:import-from #:notebooklm-cl.env
+                #:get-default-language)
+  (:import-from #:notebooklm-cl.errors
+                #:rpc-error #:rpc-error-rpc-code
+                #:rpc-timeout-error
+                #:validation-error
+                #:artifact-download-error
+                #:artifact-download-error-details
+                #:artifact-download-error-artifact-type
+                #:artifact-parse-error
+                #:artifact-not-ready-error)
+  (:import-from #:notebooklm-cl.util
+                #:%nths)
+  (:import-from #:notebooklm-cl.types
+                #:artifact-from-api-response #:artifact-from-mind-map-data
+                #:artifact-kind #:art-id
+                #:source-id
+                #:make-generation-status #:generation-status-from-api-response
+                #:generation-is-complete-p #:generation-is-failed-p
+                #:report-suggestion-from-api-response
+                #:artifact-row-media-download-ready-p
+                #:artifact-row-download-url
+                #:artifact-row-error-message)
+  (:import-from #:notebooklm-cl.rpc.types
+                #:*list-artifacts* #:*get-notes-and-mind-maps*
+                #:*create-artifact*
+                #:*generate-mind-map* #:*create-note*
+                #:*delete-artifact* #:*rename-artifact* #:*export-artifact*
+                #:*get-suggested-reports*
+                #:artifact-status-to-str
+                #:+artifact-audio+ #:+artifact-report+
+                #:+artifact-video+ #:+artifact-infographic+
+                #:+artifact-quiz+
+                #:+artifact-slide-deck+ #:+artifact-data-table+
+                #:+artifact-completed+ #:+artifact-processing+
+                #:+video-cinematic+ #:+video-custom+
+                #:+export-docs+ #:+export-sheets+
+                #:*report-format-briefing-doc* #:*report-format-study-guide*
+                #:*report-format-blog-post* #:*report-format-custom*)
+  (:export
+   #:list-artifacts
+   #:define-artifact-lister
+   #:list-audio #:list-video #:list-reports
+   #:list-quizzes #:list-flashcards #:list-infographics
+   #:list-slide-decks #:list-data-tables
+   #:get-artifact
+   #:suggest-reports
+   #:generate-audio
+   #:generate-report
+   #:generate-quiz
+   #:generate-flashcards
+   #:generate-video
+   #:generate-infographic
+   #:generate-slide-deck
+   #:generate-data-table
+   #:generate-cinematic-video
+   #:generate-mind-map
+   #:wait-for-artifact
+   #:define-simple-downloader
+   #:download-audio #:download-video #:download-infographic
+   #:download-report #:download-data-table #:download-slide-deck
+   ;; internal helpers — exported for tests
+   #:%source-ids-triple #:%source-ids-double
+   #:%report-format-config #:%now-seconds
+   #:%download-url #:%validate-download-url
+   #:%select-artifact
+   #:delete-artifact
+   #:rename-artifact
+   #:export-artifact
+   #:export-report
+   #:export-data-table
+   #:poll-artifact-status-from-rows
+   #:poll-artifact-status))
 
 (defpackage #:notebooklm-cl
   (:use #:cl)

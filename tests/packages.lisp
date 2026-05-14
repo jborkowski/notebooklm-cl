@@ -2,7 +2,8 @@
   (:use #:cl #:parachute)
   (:export #:run-tests #:test-suite)
   (:import-from #:notebooklm-cl.util
-                #:url-encode #:starts-with-p #:ends-with-p)
+                #:url-encode #:starts-with-p #:ends-with-p
+                #:extract-youtube-video-id #:valid-youtube-video-id-p)
   (:import-from #:notebooklm-cl.rpc.types
                 #:artifact-status-to-str #:source-status-to-str
                 #:+artifact-audio+ #:+artifact-report+ #:+artifact-video+
@@ -57,7 +58,10 @@
                 #:*share-notebook* #:*get-share-status*
                 #:*remove-recently-viewed* #:*get-user-settings*
                 #:*set-user-settings* #:*get-user-tier*
-                #:define-rpc-methods)
+                #:*report-format-briefing-doc* #:*report-format-study-guide*
+                #:*report-format-blog-post* #:*report-format-custom*
+                #:define-rpc-methods
+                #:+drive-mime-google-doc+ #:+drive-mime-pdf+)
   (:import-from #:notebooklm-cl.types
                 #:source-type-code-to-kind #:artifact-type-to-kind
                 #:*source-type-code-map* #:*artifact-type-code-map*
@@ -79,14 +83,16 @@
                 #:notebook-metadata #:make-notebook-metadata
                 #:nb-meta-notebook #:nb-meta-sources
                 #:artifact #:make-artifact #:art-id #:art-title
-                #:art-artifact-type #:art-status #:art-variant
+                #:art-artifact-type #:art-status #:art-variant #:art-error
+                #:art-created-at
                 #:artifact-kind #:artifact-is-completed-p
                 #:artifact-is-processing-p #:artifact-is-pending-p
                 #:artifact-is-failed-p #:artifact-is-quiz-p
                 #:artifact-is-flashcards-p #:artifact-status-str
                 #:artifact-from-api-response
+                #:artifact-from-mind-map-data
                 #:generation-status #:make-generation-status
-                #:gen-task-id #:gen-status
+                #:gen-task-id #:gen-status #:gen-error
                 #:generation-is-complete-p #:generation-is-failed-p
                 #:generation-is-pending-p
                 #:generation-status-from-api-response
@@ -145,9 +151,32 @@
                 #:rpc-timeout-error #:rpc-timeout-error-timeout-seconds
                 #:decoding-error #:unknown-rpc-method-error
                 #:notebook-limit-error #:notebook-limit-error-current-count
-                #:notebook-limit-error-limit #:notebook-limit-error-original)
+                #:notebook-limit-error-limit #:notebook-limit-error-original
+                #:source-add-error #:source-not-found-error
+                #:artifact-not-ready-error #:artifact-not-found-error
+                #:artifact-parse-error #:artifact-download-error)
   (:import-from #:notebooklm-cl.core
                 #:make-client-core #:open-client #:close-client
                 #:client-open-p #:build-url)
   (:import-from #:notebooklm-cl.notebooks
-                #:get-share-url #:get-summary #:get-description))
+                #:get-share-url #:get-summary #:get-description)
+  (:import-from #:notebooklm-cl.artifacts
+                #:poll-artifact-status-from-rows
+                #:define-artifact-lister
+                #:list-audio #:list-video #:list-reports
+                #:list-quizzes #:list-flashcards #:list-infographics
+                #:list-slide-decks #:list-data-tables
+                #:get-artifact #:suggest-reports
+                #:generate-audio #:generate-report
+                #:generate-quiz #:generate-flashcards #:generate-video
+                #:generate-infographic #:generate-slide-deck
+                #:generate-data-table #:generate-cinematic-video
+                #:generate-mind-map
+                #:wait-for-artifact
+                #:%source-ids-triple #:%source-ids-double
+                #:%report-format-config #:%now-seconds
+                #:%download-url #:%validate-download-url
+                #:%select-artifact #:%extract-cell-text #:%csv-escape-row
+                #:define-simple-downloader
+                #:download-audio #:download-video #:download-infographic
+                #:download-report #:download-data-table #:download-slide-deck))

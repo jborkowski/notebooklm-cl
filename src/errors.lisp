@@ -59,3 +59,58 @@
              (format s "Notebook quota exceeded (~D notebooks, limit ~D)"
                      (notebook-limit-error-current-count c)
                      (notebook-limit-error-limit c)))))
+
+(define-condition source-add-error (notebooklm-error)
+  ((label :initarg :label :reader source-add-error-label :initform "")
+   (message :initarg :message :reader source-add-error-message :initform nil)
+   (cause :initarg :cause :reader source-add-error-cause :initform nil))
+  (:report (lambda (c s)
+             (format s "Failed to add source~@[ (~A)~]~@[: ~A~]"
+                     (source-add-error-label c)
+                     (or (source-add-error-message c)
+                         (and (source-add-error-cause c)
+                              (princ-to-string (source-add-error-cause c))))))))
+
+(define-condition source-not-found-error (notebooklm-error)
+  ((source-id :initarg :source-id :reader source-not-found-error-source-id :initform "")
+   (notebook-id :initarg :notebook-id :reader source-not-found-error-notebook-id :initform nil))
+  (:report (lambda (c s)
+             (format s "Source not found~@[ (~A)~]"
+                     (source-not-found-error-source-id c)))))
+
+(define-condition artifact-not-ready-error (notebooklm-error)
+  ((artifact-type :initarg :artifact-type :reader artifact-not-ready-error-artifact-type)
+   (artifact-id :initarg :artifact-id :reader artifact-not-ready-error-artifact-id :initform nil))
+  (:report (lambda (c s)
+             (format s "No completed ~A artifact~@[ (id=~A)~] available"
+                     (artifact-not-ready-error-artifact-type c)
+                     (artifact-not-ready-error-artifact-id c)))))
+
+(define-condition artifact-not-found-error (notebooklm-error)
+  ((artifact-id :initarg :artifact-id :reader artifact-not-found-error-artifact-id)
+   (artifact-type :initarg :artifact-type :reader artifact-not-found-error-artifact-type :initform nil))
+  (:report (lambda (c s)
+             (format s "Artifact ~A not found~@[ (type=~A)~]"
+                     (artifact-not-found-error-artifact-id c)
+                     (artifact-not-found-error-artifact-type c)))))
+
+(define-condition artifact-parse-error (notebooklm-error)
+  ((artifact-type :initarg :artifact-type :reader artifact-parse-error-artifact-type)
+   (artifact-id :initarg :artifact-id :reader artifact-parse-error-artifact-id :initform nil)
+   (details :initarg :details :reader artifact-parse-error-details :initform nil)
+   (cause :initarg :cause :reader artifact-parse-error-cause :initform nil))
+  (:report (lambda (c s)
+             (format s "Failed to parse ~A artifact~@[ (id=~A)~]~@[: ~A~]"
+                     (artifact-parse-error-artifact-type c)
+                     (artifact-parse-error-artifact-id c)
+                     (artifact-parse-error-details c)))))
+
+(define-condition artifact-download-error (notebooklm-error)
+  ((artifact-type :initarg :artifact-type :reader artifact-download-error-artifact-type)
+   (artifact-id :initarg :artifact-id :reader artifact-download-error-artifact-id :initform nil)
+   (details :initarg :details :reader artifact-download-error-details :initform nil))
+  (:report (lambda (c s)
+             (format s "Failed to download ~A~@[ (id=~A)~]~@[: ~A~]"
+                     (artifact-download-error-artifact-type c)
+                     (artifact-download-error-artifact-id c)
+                     (artifact-download-error-details c)))))

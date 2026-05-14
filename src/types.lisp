@@ -293,7 +293,8 @@ Structure: [title_str, sources_list, id_str, ..., ..., [..., is_shared_flag, ...
   (status 0 :type integer)
   (created-at nil :type (or null real))
   (url nil :type (or null string))
-  (variant nil :type (or null integer)))
+  (variant nil :type (or null integer))
+  (error nil :type (or null string)))
 
 (defun artifact-kind (art)
   "Get the user-facing artifact kind as a string."
@@ -370,6 +371,53 @@ Phase 2: fallback to the first HTTP URL found."
     ((= atype notebooklm-cl.rpc.types:+artifact-slide-deck+) (%extract-slide-deck-pdf-url data))
     (t nil)))
 
+(defun %extract-artifact-error (data)
+  "Extract a human-readable error string from a failed artifact row (mirrors Python)."
+  (handler-case
+      (progn
+        (when (and (listp data) (> (length data) 3)
+                   (stringp (nth 3 data))
+                   (plusp (length (string-trim " " (nth 3 data)))))
+          (return-from %extract-artifact-error (string-trim " " (nth 3 data))))
+        (when (and (listp data) (> (length data) 5) (listp (nth 5 data)))
+          (dolist (item (nth 5 data))
+            (when (stringp item)
+              (let ((s (string-trim " " item)))
+                (when (plusp (length s))
+                  (return-from %extract-artifact-error s))))
+            (when (listp item)
+              (dolist (sub item)
+                (when (stringp sub)
+                  (let ((s (string-trim " " sub)))
+                    (when (plusp (length s))
+                      (return-from %extract-artifact-error s))))))))
+        nil)
+    (error ()
+      nil)))
+
+(defun artifact-row-media-download-ready-p (data artifact-type-code)
+  "Mirror Python `_is_media_ready`: media types need a populated URL; others only need status.
+On structural errors, returns NIL for media (keep polling) and T for non-media."
+  (flet ((media-type-p (tcode)
+           (or (= tcode notebooklm-cl.rpc.types:+artifact-audio+)
+               (= tcode notebooklm-cl.rpc.types:+artifact-video+)
+               (= tcode notebooklm-cl.rpc.types:+artifact-infographic+)
+               (= tcode notebooklm-cl.rpc.types:+artifact-slide-deck+))))
+    (handler-case
+        (if (media-type-p artifact-type-code)
+            (not (null (%extract-artifact-url data artifact-type-code)))
+            t)
+      (error ()
+        (not (media-type-p artifact-type-code))))))
+
+(defun artifact-row-download-url (data artifact-type-code)
+  "Public wrapper for `%extract-artifact-url` (e.g. poll / download)."
+  (%extract-artifact-url data artifact-type-code))
+
+(defun artifact-row-error-message (data)
+  "Public wrapper for `%extract-artifact-error`."
+  (%extract-artifact-error data))
+
 (defun artifact-from-api-response (data)
   "Parse an Artifact from a raw API response list.
 Structure: [id, title, type, ..., status, ..., metadata, ...]
@@ -381,13 +429,46 @@ Position 9 contains options with variant code at [9][1][0]."
       (status (4) :default 0)
       (variant (9 1 0) :type numberp)
       (created-at (15 0) :type numberp :transform #'parse-timestamp)
-    (make-artifact :id (if id-raw (princ-to-string id-raw) "")
+    (let ((failed-p (= status notebooklm-cl.rpc.types:+artifact-failed+)))
+      (make-artifact :id (if id-raw (princ-to-string id-raw) "")
+                     :title title
+                     :artifact-type atype
+                     :status status
+                     :created-at created-at
+                     :url (%extract-artifact-url data atype)
+                     :variant variant
+                     :error (when failed-p (%extract-artifact-error data))))))
+
+(defun artifact-from-mind-map-data (data)
+  "Parse a mind map row from GET_NOTES_AND_MIND_MAPS into an ARTIFACT.
+Structure matches Python Artifact.from_mind_map; returns NIL when deleted or invalid."
+  (unless (and (listp data) (first data))
+    (return-from artifact-from-mind-map-data nil))
+  (when (and (>= (length data) 3)
+             (null (nth 1 data))
+             (eql (nth 2 data) 2))
+    (return-from artifact-from-mind-map-data nil))
+  (let ((mind-map-id (first data))
+        (title "")
+        (created-at nil))
+    (when (and (> (length data) 1) (listp (nth 1 data)))
+      (let ((inner (nth 1 data)))
+        (when (and (> (length inner) 4) (stringp (nth 4 inner)))
+          (setf title (nth 4 inner)))
+        (when (and (> (length inner) 2) (listp (nth 2 inner)))
+          (let ((meta (nth 2 inner)))
+            (when (and (listp meta) (> (length meta) 2))
+              (let ((ts-data (nth 2 meta)))
+                (when (and (listp ts-data) (first ts-data))
+                  (setf created-at (parse-timestamp (first ts-data))))))))))
+    (make-artifact :id (princ-to-string mind-map-id)
                    :title title
-                   :artifact-type atype
-                   :status status
+                   :artifact-type notebooklm-cl.rpc.types:+artifact-mind-map+
+                   :status notebooklm-cl.rpc.types:+artifact-completed+
                    :created-at created-at
-                   :url (%extract-artifact-url data atype)
-                   :variant variant)))
+                   :url nil
+                   :variant nil
+                   :error nil)))
 
 ;;; ===========================================================================
 ;;; GenerationStatus

@@ -1,6 +1,6 @@
 (asdf:defsystem #:notebooklm-cl
   :description "Common Lisp client for Google NotebookLM RPC API."
-  :version "0.2.1"
+  :version "0.3.0"
   :depends-on (#:dexador #:cl-json)
   :serial t
   :components ((:module "src"
@@ -16,7 +16,9 @@
                                            (:file "encoder")
                                            (:file "decoder")))
                              (:file "core")
-                             (:file "notebooks")))))
+                             (:file "notebooks")
+                             (:file "sources")
+                             (:file "artifacts")))))
 
 ;;; ===========================================================================
 ;;; Test system
@@ -24,7 +26,7 @@
 
 (asdf:defsystem #:notebooklm-cl/tests
   :description "Tests for notebooklm-cl."
-  :version "0.2.1"
+  :version "0.3.0"
   :depends-on (#:notebooklm-cl #:parachute)
   :serial t
   :components ((:module "tests"
@@ -40,7 +42,9 @@
                              (:file "rpc-decoder")
                              (:file "types")
                              (:file "core")
-                             (:file "notebooks")))))
+                             (:file "notebooks")
+                             (:file "sources")
+                             (:file "artifacts")))))
 
 (defmethod asdf:perform ((o asdf:test-op) (c (eql (asdf:find-system :notebooklm-cl))))
   (asdf:load-system :notebooklm-cl/tests)

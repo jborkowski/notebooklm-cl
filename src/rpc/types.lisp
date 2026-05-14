@@ -82,11 +82,18 @@ Expands to (defconstant +NAME+ VALUE) for each pair."
   artifact-failed 4)
 
 (defun artifact-status-to-str (code)
-  (ecase code
-    (#.+artifact-processing+ "in_progress")
-    (#.+artifact-pending+ "pending")
-    (#.+artifact-completed+ "completed")
-    (#.+artifact-failed+ "failed")))
+  (cond
+    ((eql code #.+artifact-processing+) "in_progress")
+    ((eql code #.+artifact-pending+) "pending")
+    ((eql code #.+artifact-completed+) "completed")
+    ((eql code #.+artifact-failed+) "failed")
+    (t "unknown")))
+
+;; --- Report format wire strings (Python ReportFormat enum .value) ---
+(defparameter *report-format-briefing-doc* "briefing_doc")
+(defparameter *report-format-study-guide* "study_guide")
+(defparameter *report-format-blog-post* "blog_post")
+(defparameter *report-format-custom* "custom")
 
 ;; --- Source status codes ---
 (define-rpc-constants
@@ -202,3 +209,9 @@ Expands to (defconstant +NAME+ VALUE) for each pair."
 (defun get-upload-url ()
   (format nil "~A/upload/_/"
           (notebooklm-cl.env:get-base-url)))
+
+;; --- Google Drive MIME types (sources / Drive integration, Python DriveMimeType) ---
+(defparameter +drive-mime-google-doc+ "application/vnd.google-apps.document")
+(defparameter +drive-mime-google-slides+ "application/vnd.google-apps.presentation")
+(defparameter +drive-mime-google-sheets+ "application/vnd.google-apps.spreadsheet")
+(defparameter +drive-mime-pdf+ "application/pdf")

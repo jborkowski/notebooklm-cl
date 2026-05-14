@@ -3,11 +3,14 @@
 (defvar *default-timeout* 30.0)
 (defvar *default-connect-timeout* 10.0)
 
+;;; Optional cookie-header supplies browser Cookie header for `/upload/_/`
+;;; resumable uploads; batchexecute RPC uses csrf + session in the URL/body.
 (defstruct auth-tokens
   (csrf-token nil :type (or null string))
   (session-id nil :type (or null string))
   (account-email nil :type (or null string))
-  (authuser nil :type (or null string)))
+  (authuser nil :type (or null string))
+  (cookie-header nil :type (or null string)))
 
 (defstruct client-core
   (auth nil :type (or null auth-tokens))

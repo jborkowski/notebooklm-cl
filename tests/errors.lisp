@@ -171,7 +171,16 @@
     (let ((s (princ-to-string c)))
       (true (search "Notebook quota exceeded" s))
       (true (search "4" s))
-      (true (search "3" s)))))
+      (true (search "3" s))))
+  ;; artifact-not-ready-error
+  (let ((c (make-condition 'artifact-not-ready-error :artifact-type "audio")))
+    (true (search "audio" (princ-to-string c))))
+  ;; artifact-parse-error
+  (let ((c (make-condition 'artifact-parse-error
+             :artifact-type "quiz" :details "bad json")))
+    (let ((s (princ-to-string c)))
+      (true (search "quiz" s))
+      (true (search "bad json" s)))))
 
 ;;; --- Signal + handler-case integration ---
 

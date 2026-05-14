@@ -4,7 +4,7 @@
   (cl-json:encode-json-to-string object))
 
 (defun encode-rpc-request (method-id params)
-  `((,(list method-id (json-encode-compact params) nil "generic"))))
+  (list (list method-id (json-encode-compact params) nil "generic")))
 
 (defun build-request-body (rpc-request &key csrf-token)
   (let* ((freq (json-encode-compact rpc-request))

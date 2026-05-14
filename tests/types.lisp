@@ -267,7 +267,28 @@ My Notebook" (("s1") ("s2") ("s3")) "nb-123"
     (is string= "art-id" (art-id a))
     (is string= "Test Artifact" (art-title a))
     (is = 2 (art-artifact-type a))
-    (is = 3 (art-status a))))
+    (is = 3 (art-status a))
+    (is eq nil (art-error a))))
+
+(define-test test-artifact-from-api-response-failed-with-error
+  :parent test-types
+  (let ((a (artifact-from-api-response
+            '("bad" "Bad Report" 2 "quota exceeded" 4))))
+    (true (artifact-is-failed-p a))
+    (is string= "quota exceeded" (art-error a))))
+
+(define-test test-artifact-from-mind-map-data
+  :parent test-types
+  (let ((row '("mm1"
+               ("mm1" "{\"nodes\":[]}" (1 "user" (1690000000)) nil "Map title"))))
+    (let ((a (artifact-from-mind-map-data row)))
+      (is string= "mm1" (art-id a))
+      (is string= "Map title" (art-title a))
+      (is = +artifact-mind-map+ (art-artifact-type a))
+      (is = +artifact-completed+ (art-status a))
+      (true (numberp (art-created-at a)))))
+  (is eq nil (artifact-from-mind-map-data '("gone" nil 2)))
+  (is eq nil (artifact-from-mind-map-data nil)))
 
 ;;; ===========================================================================
 ;;; GenerationStatus struct
