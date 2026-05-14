@@ -113,6 +113,23 @@ Opens client before BODY, closes on unwind, catches notebooklm-error."
              (uiop:quit 1)))
        (close-client ,client-var))))
 
+(defmacro with-required-args ((&rest names) usage &body body)
+  "Bind each of NAMES to consecutive positional args from POS, starting at
+index 1 (positional 0 is the command word itself).  If any binding is NIL,
+print `Usage: USAGE' to stderr and exit 1.  USAGE may contain embedded ~%
+directives for multi-line usage messages.
+
+Anaphoric on POS — the enclosing CMD-* function's first parameter."
+  (let ((bindings
+          (loop for n in names
+                for i from 1
+                collect `(,n (nth ,i pos)))))
+    `(let* ,bindings
+       (unless (and ,@names)
+         (format *error-output* "~&Usage: ~@?~%" ,usage)
+         (uiop:quit 1))
+       ,@body)))
+
 ;;; ===========================================================================
 ;;; Argument parsing
 ;;; ===========================================================================
@@ -261,10 +278,8 @@ Returns (values session-id csrf-token cookie-header hl)."
           (format t "~&No notebooks found.~%")))))
 
 (defun cmd-sources (pos kvs)
-  (let ((nb-id (second pos)))
-    (unless nb-id
-      (format *error-output* "~&Usage: notebooklm sources <notebook-id> [--json]~%")
-      (uiop:quit 1))
+  (with-required-args (nb-id)
+      "notebooklm sources <notebook-id> [--json]"
     (let ((json-p (has-kv kvs "json")))
       (with-nblm-client (c)
         (let ((sources (list-sources c nb-id)))
@@ -280,10 +295,8 @@ Returns (values session-id csrf-token cookie-header hl)."
               (format t "~&No sources in notebook.~%")))))))
 
 (defun cmd-artifacts (pos kvs)
-  (let ((nb-id (second pos)))
-    (unless nb-id
-      (format *error-output* "~&Usage: notebooklm artifacts <notebook-id> [--type TYPE] [--json]~%")
-      (uiop:quit 1))
+  (with-required-args (nb-id)
+      "notebooklm artifacts <notebook-id> [--type TYPE] [--json]"
     (let* ((type-str (kv kvs "type"))
            (json-p (has-kv kvs "json"))
            (type-kw (when type-str (intern (string-upcase type-str) :keyword))))
@@ -305,10 +318,8 @@ Returns (values session-id csrf-token cookie-header hl)."
 
 (defun cmd-create-notebook (pos kvs)
   (declare (ignore kvs))
-  (let ((title (second pos)))
-    (unless title
-      (format *error-output* "~&Usage: notebooklm create-notebook <title>~%")
-      (uiop:quit 1))
+  (with-required-args (title)
+      "notebooklm create-notebook <title>"
     (with-nblm-client (c)
       (let ((nb (create-notebook c title)))
         (format t "~&Created: ~A~%" (notebook-id nb))
@@ -316,39 +327,31 @@ Returns (values session-id csrf-token cookie-header hl)."
 
 (defun cmd-add-url (pos kvs)
   (declare (ignore kvs))
-  (let ((nb-id (second pos)) (url (third pos)))
-    (unless (and nb-id url)
-      (format *error-output* "~&Usage: notebooklm add-url <notebook-id> <url>~%")
-      (uiop:quit 1))
+  (with-required-args (nb-id url)
+      "notebooklm add-url <notebook-id> <url>"
     (with-nblm-client (c)
       (let ((src (add-url c nb-id url)))
         (format t "~&Added: ~A (~A)~%" (source-title src) (source-id src))))))
 
 (defun cmd-delete-source (pos kvs)
   (declare (ignore kvs))
-  (let ((nb-id (second pos)) (src-id (third pos)))
-    (unless (and nb-id src-id)
-      (format *error-output* "~&Usage: notebooklm delete-source <notebook-id> <source-id>~%")
-      (uiop:quit 1))
+  (with-required-args (nb-id src-id)
+      "notebooklm delete-source <notebook-id> <source-id>"
     (with-nblm-client (c)
       (delete-source c nb-id src-id)
       (format t "~&Deleted source ~A~%" src-id))))
 
 (defun cmd-delete-artifact (pos kvs)
   (declare (ignore kvs))
-  (let ((nb-id (second pos)) (art-id (third pos)))
-    (unless (and nb-id art-id)
-      (format *error-output* "~&Usage: notebooklm delete-artifact <notebook-id> <artifact-id>~%")
-      (uiop:quit 1))
+  (with-required-args (nb-id art-id)
+      "notebooklm delete-artifact <notebook-id> <artifact-id>"
     (with-nblm-client (c)
       (delete-artifact c nb-id art-id)
       (format t "~&Deleted ~A~%" art-id))))
 
 (defun cmd-get-metadata (pos kvs)
-  (let ((nb-id (second pos)))
-    (unless nb-id
-      (format *error-output* "~&Usage: notebooklm metadata <notebook-id> [--json]~%")
-      (uiop:quit 1))
+  (with-required-args (nb-id)
+      "notebooklm metadata <notebook-id> [--json]"
     (with-nblm-client (c)
       (let ((meta (get-metadata c nb-id)))
         (if (has-kv kvs "json")
@@ -367,10 +370,8 @@ Returns (values session-id csrf-token cookie-header hl)."
 
 (defun cmd-suggest (pos kvs)
   (declare (ignore kvs))
-  (let ((nb-id (second pos)))
-    (unless nb-id
-      (format *error-output* "~&Usage: notebooklm suggest <notebook-id>~%")
-      (uiop:quit 1))
+  (with-required-args (nb-id)
+      "notebooklm suggest <notebook-id>"
     (with-nblm-client (c)
       (let ((suggestions (suggest-reports c nb-id)))
         (if suggestions
@@ -379,11 +380,9 @@ Returns (values session-id csrf-token cookie-header hl)."
             (format t "~&No suggestions available.~%"))))))
 
 (defun cmd-generate (pos kvs)
-  (let ((type (second pos)) (nb-id (third pos)))
-    (unless (and type nb-id)
-      (format *error-output* "~&Usage: notebooklm generate <type> <notebook-id> [options]~%")
-      (format *error-output* "~&Types: audio, report, quiz, flashcards, video, cinematic, infographic, slide-deck, data-table, mind-map~%")
-      (uiop:quit 1))
+  (with-required-args (type nb-id)
+      "notebooklm generate <type> <notebook-id> [options]~@
+       Types: audio, report, quiz, flashcards, video, cinematic, infographic, slide-deck, data-table, mind-map"
     (let ((src-ids (when (has-kv kvs "source-ids")
                      (uiop:split-string (kv kvs "source-ids") :separator ",")))
           (lang (kv kvs "language"))
@@ -425,10 +424,8 @@ Returns (values session-id csrf-token cookie-header hl)."
               (format t "~&Run: notebooklm wait ~A ~A~%" nb-id task-id))))))))
 
 (defun cmd-download (pos kvs)
-  (let ((type (second pos)) (nb-id (third pos)) (out-path (fourth pos)))
-    (unless (and type nb-id out-path)
-      (format *error-output* "~&Usage: notebooklm download <type> <notebook-id> <output-path> [--id ARTIFACT-ID] [options]~%")
-      (uiop:quit 1))
+  (with-required-args (type nb-id out-path)
+      "notebooklm download <type> <notebook-id> <output-path> [--id ARTIFACT-ID] [options]"
     (let ((art-id (kv kvs "id")))
       (with-nblm-client (c)
         (let ((saved-path
@@ -453,10 +450,8 @@ Returns (values session-id csrf-token cookie-header hl)."
           (format t "~&Downloaded to ~A~%" saved-path))))))
 
 (defun cmd-wait (pos kvs)
-  (let ((nb-id (second pos)) (task-id (third pos)))
-    (unless (and nb-id task-id)
-      (format *error-output* "~&Usage: notebooklm wait <notebook-id> <task-id> [--timeout SECONDS]~%")
-      (uiop:quit 1))
+  (with-required-args (nb-id task-id)
+      "notebooklm wait <notebook-id> <task-id> [--timeout SECONDS]"
     (let ((timeout (ignore-errors (parse-integer (kv kvs "timeout" "300")))))
       (with-nblm-client (c)
         (let ((result (wait-for-artifact c nb-id task-id :timeout (or timeout 300))))

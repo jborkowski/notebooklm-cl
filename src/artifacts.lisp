@@ -197,6 +197,22 @@ Returns a GENERATION-STATUS (task-id + status on success, error info on failure)
                                   :error-code (rpc-error-rpc-code e))
           (error e)))))
 
+(defmacro with-source-context ((client notebook-id &key language double) &body body)
+  "Establish the CREATE_ARTIFACT generator prelude.
+Always rebinds SOURCE-IDS (defaulting to all sources via %GET-SOURCE-IDS) and
+binds TRIPLE to (%SOURCE-IDS-TRIPLE SOURCE-IDS).  With :LANGUAGE T, rebinds
+LANGUAGE to (GET-DEFAULT-LANGUAGE) when NIL.  With :DOUBLE T, binds DOUBLE to
+(%SOURCE-IDS-DOUBLE SOURCE-IDS).
+
+Anaphoric: SOURCE-IDS (and LANGUAGE when :LANGUAGE T) must already be bound
+in the enclosing lexical environment — typically as keyword parameters of the
+surrounding GENERATE-* function."
+  `(let* (,@(when language `((language (or language (get-default-language)))))
+          (source-ids (or source-ids (%get-source-ids ,client ,notebook-id)))
+          (triple (%source-ids-triple source-ids))
+          ,@(when double `((double (%source-ids-double source-ids)))))
+     ,@body))
+
 ;;; ===========================================================================
 ;;; generate-audio
 ;;; ===========================================================================
@@ -212,20 +228,17 @@ Keyword args:
   :INSTRUCTIONS  — custom instructions for the podcast hosts
   :AUDIO-FORMAT  — one of +AUDIO-DEEP-DIVE+, +AUDIO-BRIEF+, +AUDIO-CRITIQUE+, +AUDIO-DEBATE+
   :AUDIO-LENGTH  — one of +AUDIO-SHORT+, +AUDIO-DEFAULT+, +AUDIO-LONG+"
-  (let* ((language (or language (get-default-language)))
-         (source-ids (or source-ids (%get-source-ids client notebook-id)))
-         (triple (%source-ids-triple source-ids))
-         (double (%source-ids-double source-ids))
-         (params (list (list 2)
-                       notebook-id
-                       (list nil nil +artifact-audio+
-                             triple nil nil
-                             (list nil
-                                   (list instructions
-                                         audio-length
-                                         nil double language nil
-                                         audio-format))))))
-    (%call-generate client notebook-id params)))
+  (with-source-context (client notebook-id :language t :double t)
+    (let ((params (list (list 2)
+                        notebook-id
+                        (list nil nil +artifact-audio+
+                              triple nil nil
+                              (list nil
+                                    (list instructions
+                                          audio-length
+                                          nil double language nil
+                                          audio-format))))))
+      (%call-generate client notebook-id params))))
 
 ;;; ===========================================================================
 ;;; generate-report
@@ -283,22 +296,19 @@ Keyword args:
                         *report-format-blog-post*, or *report-format-custom*
   :CUSTOM-PROMPT      — prompt for CUSTOM format (ignored otherwise)
   :EXTRA-INSTRUCTIONS — appended to built-in prompt (ignored for CUSTOM)"
-  (let* ((language (or language (get-default-language)))
-         (source-ids (or source-ids (%get-source-ids client notebook-id)))
-         (triple (%source-ids-triple source-ids))
-         (double (%source-ids-double source-ids))
-         (config (%report-format-config report-format custom-prompt extra-instructions))
-         (title (first config))
-         (description (second config))
-         (prompt (third config))
-         (params (list (list 2)
-                       notebook-id
-                       (list nil nil +artifact-report+
-                             triple nil nil nil
-                             (list nil
-                                   (list title description nil double language
-                                         prompt nil t))))))
-    (%call-generate client notebook-id params)))
+  (with-source-context (client notebook-id :language t :double t)
+    (let* ((config (%report-format-config report-format custom-prompt extra-instructions))
+           (title (first config))
+           (description (second config))
+           (prompt (third config))
+           (params (list (list 2)
+                         notebook-id
+                         (list nil nil +artifact-report+
+                               triple nil nil nil
+                               (list nil
+                                     (list title description nil double language
+                                           prompt nil t))))))
+      (%call-generate client notebook-id params))))
 
 ;;; ===========================================================================
 ;;; generate-quiz
@@ -313,17 +323,16 @@ Keyword args:
   :INSTRUCTIONS  — custom instructions
   :QUANTITY      — +QUIZ-FEWER+, +QUIZ-STANDARD+, or +QUIZ-MORE+
   :DIFFICULTY    — +QUIZ-EASY+, +QUIZ-MEDIUM+, or +QUIZ-HARD+"
-  (let* ((source-ids (or source-ids (%get-source-ids client notebook-id)))
-         (triple (%source-ids-triple source-ids))
-         (params (list (list 2)
-                       notebook-id
-                       (list nil nil +artifact-quiz+
-                             triple nil nil nil nil nil
-                             (list nil
-                                   (list 2  ; variant: quiz
-                                         nil instructions nil nil nil nil
-                                         (list quantity difficulty)))))))
-    (%call-generate client notebook-id params)))
+  (with-source-context (client notebook-id)
+    (let ((params (list (list 2)
+                        notebook-id
+                        (list nil nil +artifact-quiz+
+                              triple nil nil nil nil nil
+                              (list nil
+                                    (list 2  ; variant: quiz
+                                          nil instructions nil nil nil nil
+                                          (list quantity difficulty)))))))
+      (%call-generate client notebook-id params))))
 
 ;;; ===========================================================================
 ;;; generate-flashcards
@@ -338,17 +347,16 @@ Keyword args:
   :INSTRUCTIONS  — custom instructions
   :QUANTITY      — +QUIZ-FEWER+, +QUIZ-STANDARD+, or +QUIZ-MORE+
   :DIFFICULTY    — +QUIZ-EASY+, +QUIZ-MEDIUM+, or +QUIZ-HARD+"
-  (let* ((source-ids (or source-ids (%get-source-ids client notebook-id)))
-         (triple (%source-ids-triple source-ids))
-         (params (list (list 2)
-                       notebook-id
-                       (list nil nil +artifact-quiz+
-                             triple nil nil nil nil nil
-                             (list nil
-                                   (list 1  ; variant: flashcards
-                                         nil instructions nil nil nil
-                                         (list difficulty quantity)))))))
-    (%call-generate client notebook-id params)))
+  (with-source-context (client notebook-id)
+    (let ((params (list (list 2)
+                        notebook-id
+                        (list nil nil +artifact-quiz+
+                              triple nil nil nil nil nil
+                              (list nil
+                                    (list 1  ; variant: flashcards
+                                          nil instructions nil nil nil
+                                          (list difficulty quantity)))))))
+      (%call-generate client notebook-id params))))
 
 ;;; ===========================================================================
 ;;; generate-video
@@ -366,30 +374,27 @@ Keyword args:
   :VIDEO-FORMAT  — +VIDEO-EXPLAINER+, +VIDEO-BRIEF+, or +VIDEO-CINEMATIC+
   :VIDEO-STYLE   — +VIDEO-CLASSIC+, +VIDEO-WHITEBOARD+, etc.
   :STYLE-PROMPT  — custom visual style (requires :VIDEO-STYLE +VIDEO-CUSTOM+)"
-  (let* ((language (or language (get-default-language)))
-         (prompt (when style-prompt (string-trim " " style-prompt)))
-         (source-ids (or source-ids (%get-source-ids client notebook-id)))
-         (triple (%source-ids-triple source-ids))
-         (double (%source-ids-double source-ids)))
-    ;; Validation (Python parity)
-    (when (and (= video-format notebooklm-cl.rpc.types:+video-cinematic+) prompt)
-      (error 'validation-error))
-    (when (and (= video-style notebooklm-cl.rpc.types:+video-custom+)
-               (or (null prompt) (zerop (length prompt))))
-      (error 'validation-error))
-    (when (and prompt (not (= video-style notebooklm-cl.rpc.types:+video-custom+)))
-      (error 'validation-error))
-    (let* ((video-config (list double language instructions nil
-                                video-format video-style))
-           (video-config (if prompt
-                             (append video-config (list prompt))
-                             video-config))
-           (params (list (list 2)
-                         notebook-id
-                         (list nil nil +artifact-video+
-                               triple nil nil nil nil
-                               (list nil nil video-config)))))
-      (%call-generate client notebook-id params))))
+  (with-source-context (client notebook-id :language t :double t)
+    (let ((prompt (when style-prompt (string-trim " " style-prompt))))
+      ;; Validation (Python parity)
+      (when (and (= video-format notebooklm-cl.rpc.types:+video-cinematic+) prompt)
+        (error 'validation-error))
+      (when (and (= video-style notebooklm-cl.rpc.types:+video-custom+)
+                 (or (null prompt) (zerop (length prompt))))
+        (error 'validation-error))
+      (when (and prompt (not (= video-style notebooklm-cl.rpc.types:+video-custom+)))
+        (error 'validation-error))
+      (let* ((video-config (list double language instructions nil
+                                  video-format video-style))
+             (video-config (if prompt
+                               (append video-config (list prompt))
+                               video-config))
+             (params (list (list 2)
+                           notebook-id
+                           (list nil nil +artifact-video+
+                                 triple nil nil nil nil
+                                 (list nil nil video-config)))))
+        (%call-generate client notebook-id params)))))
 
 ;;; ===========================================================================
 ;;; generate-infographic
@@ -399,16 +404,14 @@ Keyword args:
                                                 (orientation nil) (detail-level nil)
                                                 (style nil))
   "Generate an infographic artifact.  Returns GENERATION-STATUS."
-  (let* ((language (or language (get-default-language)))
-         (source-ids (or source-ids (%get-source-ids client notebook-id)))
-         (triple (%source-ids-triple source-ids))
-         (params (list (list 2)
-                       notebook-id
-                       (list nil nil +artifact-infographic+
-                             triple nil nil nil nil nil nil nil nil nil nil nil
-                             (list (list instructions language nil
-                                          orientation detail-level style))))))
-    (%call-generate client notebook-id params)))
+  (with-source-context (client notebook-id :language t)
+    (let ((params (list (list 2)
+                        notebook-id
+                        (list nil nil +artifact-infographic+
+                              triple nil nil nil nil nil nil nil nil nil nil nil
+                              (list (list instructions language nil
+                                           orientation detail-level style))))))
+      (%call-generate client notebook-id params))))
 
 ;;; ===========================================================================
 ;;; generate-slide-deck
@@ -417,16 +420,14 @@ Keyword args:
 (defun generate-slide-deck (client notebook-id &key source-ids language instructions
                                                (slide-format nil) (slide-length nil))
   "Generate a slide deck artifact.  Returns GENERATION-STATUS."
-  (let* ((language (or language (get-default-language)))
-         (source-ids (or source-ids (%get-source-ids client notebook-id)))
-         (triple (%source-ids-triple source-ids))
-         (params (list (list 2)
-                       notebook-id
-                       (list nil nil +artifact-slide-deck+
-                             triple nil nil nil nil nil nil nil nil nil nil nil nil nil nil
-                             (list (list instructions language
-                                          slide-format slide-length))))))
-    (%call-generate client notebook-id params)))
+  (with-source-context (client notebook-id :language t)
+    (let ((params (list (list 2)
+                        notebook-id
+                        (list nil nil +artifact-slide-deck+
+                              triple nil nil nil nil nil nil nil nil nil nil nil nil nil nil
+                              (list (list instructions language
+                                           slide-format slide-length))))))
+      (%call-generate client notebook-id params))))
 
 ;;; ===========================================================================
 ;;; generate-data-table
@@ -434,16 +435,14 @@ Keyword args:
 
 (defun generate-data-table (client notebook-id &key source-ids language instructions)
   "Generate a data table artifact.  Returns GENERATION-STATUS."
-  (let* ((language (or language (get-default-language)))
-         (source-ids (or source-ids (%get-source-ids client notebook-id)))
-         (triple (%source-ids-triple source-ids))
-         (params (list (list 2)
-                       notebook-id
-                       (list nil nil +artifact-data-table+
-                             triple nil nil nil nil nil nil nil nil nil nil nil nil nil nil nil
-                             nil
-                             (list nil (list instructions language))))))
-    (%call-generate client notebook-id params)))
+  (with-source-context (client notebook-id :language t)
+    (let ((params (list (list 2)
+                        notebook-id
+                        (list nil nil +artifact-data-table+
+                              triple nil nil nil nil nil nil nil nil nil nil nil nil nil nil nil
+                              nil
+                              (list nil (list instructions language))))))
+      (%call-generate client notebook-id params))))
 
 ;;; ===========================================================================
 ;;; generate-cinematic-video
@@ -453,18 +452,15 @@ Keyword args:
   "Generate a Cinematic Video Overview (Veo 3 documentary style).
 Uses VideoFormat.CINEMATIC internally; does not accept VideoStyle options.
 Note: generation can take 30-40 minutes."
-  (let* ((language (or language (get-default-language)))
-         (source-ids (or source-ids (%get-source-ids client notebook-id)))
-         (triple (%source-ids-triple source-ids))
-         (double (%source-ids-double source-ids))
-         (params (list (list 2)
-                       notebook-id
-                       (list nil nil +artifact-video+
-                             triple nil nil nil nil
-                             (list nil nil
-                                   (list double language instructions nil
-                                         notebooklm-cl.rpc.types:+video-cinematic+))))))
-    (%call-generate client notebook-id params)))
+  (with-source-context (client notebook-id :language t :double t)
+    (let ((params (list (list 2)
+                        notebook-id
+                        (list nil nil +artifact-video+
+                              triple nil nil nil nil
+                              (list nil nil
+                                    (list double language instructions nil
+                                          notebooklm-cl.rpc.types:+video-cinematic+))))))
+      (%call-generate client notebook-id params))))
 
 ;;; ===========================================================================
 ;;; generate-mind-map
@@ -488,20 +484,18 @@ Note: generation can take 30-40 minutes."
   "Generate an interactive mind map.  Returns plist (:mind-map DATA :note-id ID).
 Mind maps use GENERATE_MIND_MAP RPC (not CREATE_ARTIFACT) and are persisted
 via CREATE_NOTE.  They appear in artifact listings as type MIND_MAP."
-  (let* ((language (or language (get-default-language)))
-         (source-ids (or source-ids (%get-source-ids client notebook-id)))
-         (triple (%source-ids-triple source-ids))
-         (params (list triple nil nil nil nil
-                       (list "interactive_mindmap"
-                             (list (list "[CONTEXT]" (or instructions "")))
-                             language)
-                       nil
-                       (list 2 nil (list 1))))
-         (result (rpc-call client notebooklm-cl.rpc.types:*generate-mind-map*
-                           params
-                           :source-path (%notebook-path notebook-id)
-                           :allow-null t)))
-    (when (and result (listp result) (listp (first result)))
+  (with-source-context (client notebook-id :language t)
+    (let* ((params (list triple nil nil nil nil
+                         (list "interactive_mindmap"
+                               (list (list "[CONTEXT]" (or instructions "")))
+                               language)
+                         nil
+                         (list 2 nil (list 1))))
+           (result (rpc-call client notebooklm-cl.rpc.types:*generate-mind-map*
+                             params
+                             :source-path (%notebook-path notebook-id)
+                             :allow-null t)))
+      (when (and result (listp result) (listp (first result)))
       (let* ((inner (first result))
              (mind-map-json (when (listp inner) (first inner)))
              (mind-map-data (if (stringp mind-map-json)
@@ -517,7 +511,7 @@ via CREATE_NOTE.  They appear in artifact listings as type MIND_MAP."
                            mind-map-json
                            (cl-json:encode-json-to-string mind-map-json)))
              (note-id (%create-mind-map-note client notebook-id title json-str)))
-        (list :mind-map mind-map-data :note-id note-id)))))
+        (list :mind-map mind-map-data :note-id note-id))))))
 
 ;;; ===========================================================================
 ;;; Poll status — Python poll_status (+ media URL downgrade)
@@ -719,6 +713,27 @@ Signals ARTIFACT-NOT-READY-ERROR if no candidates or ID not found."
           (error 'artifact-not-ready-error
                  :artifact-type type-name-lower))))
 
+(defmacro with-completed-artifact ((selected-var client notebook-id type-code
+                                    &key artifact-id type-name)
+                                   &body body)
+  "Bind SELECTED-VAR to a completed artifact row of TYPE-CODE inside BODY.
+ARTIFACT-ID picks that row by id; NIL picks the most recently created one.
+TYPE-NAME is a capitalized label (e.g. \"Slide deck\") used in error messages;
+its lowercase form is derived automatically.
+Signals ARTIFACT-NOT-READY-ERROR when no completed candidates exist."
+  (let ((cands (gensym "CANDS"))
+        (name (gensym "TYPE-NAME")))
+    `(let* ((,name ,type-name)
+            (,cands (remove-if-not
+                     (lambda (a)
+                       (and (listp a) (> (length a) 4)
+                            (= (nth 2 a) ,type-code)
+                            (= (nth 4 a) +artifact-completed+)))
+                     (%list-raw ,client ,notebook-id)))
+            (,selected-var (%select-artifact ,cands ,artifact-id
+                                             ,name (string-downcase ,name))))
+       ,@body)))
+
 ;;; ===========================================================================
 ;;; Simple downloader macro (audio, video, infographic)
 ;;; ===========================================================================
@@ -729,23 +744,16 @@ Generates a function (NAME CLIENT NOTEBOOK-ID OUTPUT-PATH &KEY ARTIFACT-ID)
 that filters by TYPE-CODE, selects completed artifact, extracts URL, downloads."
   `(defun ,name (client notebook-id output-path &key artifact-id)
      ,(format nil "Download ~A artifact to OUTPUT-PATH." artifact-type)
-     (let* ((raw (%list-raw client notebook-id))
-            (candidates (remove-if-not
-                         (lambda (a)
-                           (and (listp a) (> (length a) 4)
-                                (= (nth 2 a) ,type-code)
-                                (= (nth 4 a) +artifact-completed+)))
-                         raw))
-            (selected (%select-artifact candidates artifact-id
-                                        ,(string-capitalize artifact-type)
-                                        ,(string-downcase artifact-type)))
-            (url (artifact-row-download-url selected ,type-code)))
-       (unless url
-         (error 'artifact-parse-error
-                :artifact-type ,artifact-type
-                :artifact-id artifact-id
-                :details "Could not extract download URL"))
-       (%download-url url output-path))))
+     (with-completed-artifact (selected client notebook-id ,type-code
+                               :artifact-id artifact-id
+                               :type-name ,(string-capitalize artifact-type))
+       (let ((url (artifact-row-download-url selected ,type-code)))
+         (unless url
+           (error 'artifact-parse-error
+                  :artifact-type ,artifact-type
+                  :artifact-id artifact-id
+                  :details "Could not extract download URL"))
+         (%download-url url output-path)))))
 
 (define-simple-downloader download-audio "audio" +artifact-audio+)
 (define-simple-downloader download-video "video" +artifact-video+)
@@ -758,78 +766,67 @@ that filters by TYPE-CODE, selects completed artifact, extracts URL, downloads."
 (defun download-report (client notebook-id output-path &key artifact-id)
   "Download a report artifact as markdown to OUTPUT-PATH.
 Reads artifact row index 7 (report content wrapper)."
-  (let* ((raw (%list-raw client notebook-id))
-         (candidates (remove-if-not
-                      (lambda (a)
-                        (and (listp a) (> (length a) 7)
-                             (= (nth 2 a) +artifact-report+)
-                             (= (nth 4 a) +artifact-completed+)))
-                      raw))
-         (selected (%select-artifact candidates artifact-id "Report" "report"))
-         (content-wrapper (%nths selected 7))
-         (markdown (if (and (listp content-wrapper) content-wrapper)
-                       (first content-wrapper)
-                       content-wrapper)))
-    (unless (stringp markdown)
-      (error 'artifact-parse-error
-             :artifact-type "report_content"
-             :details "Invalid report content structure"))
-    (ensure-directories-exist output-path)
-    (with-open-file (out output-path :direction :output
-                         :if-exists :supersede
-                         :external-format :utf-8)
-      (write-string markdown out))
-    output-path))
+  (with-completed-artifact (selected client notebook-id +artifact-report+
+                            :artifact-id artifact-id
+                            :type-name "Report")
+    (let* ((content-wrapper (%nths selected 7))
+           (markdown (if (and (listp content-wrapper) content-wrapper)
+                         (first content-wrapper)
+                         content-wrapper)))
+      (unless (stringp markdown)
+        (error 'artifact-parse-error
+               :artifact-type "report_content"
+               :details "Invalid report content structure"))
+      (ensure-directories-exist output-path)
+      (with-open-file (out output-path :direction :output
+                           :if-exists :supersede
+                           :external-format :utf-8)
+        (write-string markdown out))
+      output-path)))
 
 (defun download-data-table (client notebook-id output-path &key artifact-id)
   "Download a data table artifact as CSV to OUTPUT-PATH.
 Reads artifact row index 18 (table raw data), parses headers + rows."
-  (let* ((raw (%list-raw client notebook-id))
-         (candidates (remove-if-not
-                      (lambda (a)
-                        (and (listp a) (> (length a) 18)
-                             (= (nth 2 a) +artifact-data-table+)
-                             (= (nth 4 a) +artifact-completed+)))
-                      raw))
-         (selected (%select-artifact candidates artifact-id "Data table" "data table"))
-         (raw-data (%nths selected 18))
-         (headers nil)
-         (rows nil))
-    (unless raw-data
-      (error 'artifact-parse-error
-             :artifact-type "data_table"
-             :details "No raw data at index 18"))
-    ;; Navigate: raw-data[0][0][0][0][4][2] → rows array
-    (let ((rows-array (%nths raw-data 0 0 0 0 4 2)))
-      (unless (listp rows-array)
+  (with-completed-artifact (selected client notebook-id +artifact-data-table+
+                            :artifact-id artifact-id
+                            :type-name "Data table")
+    (let ((raw-data (%nths selected 18))
+          (headers nil)
+          (rows nil))
+      (unless raw-data
         (error 'artifact-parse-error
                :artifact-type "data_table"
-               :details "Cannot find rows array"))
-      (loop for i from 0 below (length rows-array)
-            for row-section = (nth i rows-array)
-            when (and (listp row-section) (>= (length row-section) 3))
-            do (let* ((cell-array (nth 2 row-section))
-                      (values (when (listp cell-array)
-                                (loop for cell in cell-array
-                                      collect (%extract-cell-text cell)))))
-                 (if (= i 0)
-                     (setf headers values)
-                     (push values rows)))))
-    (unless headers
-      (error 'artifact-parse-error
-             :artifact-type "data_table"
-             :details "Failed to extract headers"))
-    (setf rows (nreverse rows))
-    (ensure-directories-exist output-path)
-    (with-open-file (out output-path :direction :output
-                         :if-exists :supersede
-                         :external-format :utf-8)
-      ;; Write CSV
-      (write-string (%csv-escape-row headers) out)
-      (dolist (row rows)
-        (terpri out)
-        (write-string (%csv-escape-row row) out)))
-    output-path))
+               :details "No raw data at index 18"))
+      ;; Navigate: raw-data[0][0][0][0][4][2] → rows array
+      (let ((rows-array (%nths raw-data 0 0 0 0 4 2)))
+        (unless (listp rows-array)
+          (error 'artifact-parse-error
+                 :artifact-type "data_table"
+                 :details "Cannot find rows array"))
+        (loop for i from 0 below (length rows-array)
+              for row-section = (nth i rows-array)
+              when (and (listp row-section) (>= (length row-section) 3))
+              do (let* ((cell-array (nth 2 row-section))
+                        (values (when (listp cell-array)
+                                  (loop for cell in cell-array
+                                        collect (%extract-cell-text cell)))))
+                   (if (= i 0)
+                       (setf headers values)
+                       (push values rows)))))
+      (unless headers
+        (error 'artifact-parse-error
+               :artifact-type "data_table"
+               :details "Failed to extract headers"))
+      (setf rows (nreverse rows))
+      (ensure-directories-exist output-path)
+      (with-open-file (out output-path :direction :output
+                           :if-exists :supersede
+                           :external-format :utf-8)
+        (write-string (%csv-escape-row headers) out)
+        (dolist (row rows)
+          (terpri out)
+          (write-string (%csv-escape-row row) out)))
+      output-path)))
 
 (defun %extract-cell-text (cell)
   "Recursively extract text from a nested data-table cell structure."
@@ -863,28 +860,23 @@ Reads artifact row index 18 (table raw data), parses headers + rows."
 Reads artifact row index 16: metadata[3]=PDF, metadata[4]=PPTX."
   (unless (member output-format '("pdf" "pptx") :test #'string=)
     (error 'notebooklm-cl.errors:validation-error))
-  (let* ((raw (%list-raw client notebook-id))
-         (candidates (remove-if-not
-                      (lambda (a)
-                        (and (listp a) (> (length a) 16)
-                             (= (nth 2 a) +artifact-slide-deck+)
-                             (= (nth 4 a) +artifact-completed+)))
-                      raw))
-         (selected (%select-artifact candidates artifact-id "Slide deck" "slide deck"))
-         (metadata (%nths selected 16))
-         (url-index (if (string= output-format "pptx") 4 3)))
-    (unless (and (listp metadata) (> (length metadata) url-index))
-      (error 'artifact-parse-error
-             :artifact-type "slide_deck"
-             :details (format nil "Invalid slide deck metadata structure")))
-    (let ((url (nth url-index metadata)))
-      (unless (and (stringp url) (>= (length url) 8)
-                   (string-equal url "https://" :end1 8))
-        (error 'artifact-download-error
+  (with-completed-artifact (selected client notebook-id +artifact-slide-deck+
+                            :artifact-id artifact-id
+                            :type-name "Slide deck")
+    (let ((metadata (%nths selected 16))
+          (url-index (if (string= output-format "pptx") 4 3)))
+      (unless (and (listp metadata) (> (length metadata) url-index))
+        (error 'artifact-parse-error
                :artifact-type "slide_deck"
-               :details (format nil "Could not find ~A download URL"
-                                (string-upcase output-format))))
-      (%download-url url output-path))))
+               :details (format nil "Invalid slide deck metadata structure")))
+      (let ((url (nth url-index metadata)))
+        (unless (and (stringp url) (>= (length url) 8)
+                     (string-equal url "https://" :end1 8))
+          (error 'artifact-download-error
+                 :artifact-type "slide_deck"
+                 :details (format nil "Could not find ~A download URL"
+                                  (string-upcase output-format))))
+        (%download-url url output-path)))))
 
 ;;; ===========================================================================
 ;;; Quiz / flashcard HTML — app-data extraction (Python _extract_app_data)
