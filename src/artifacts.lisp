@@ -763,6 +763,19 @@ that filters by TYPE-CODE, selects completed artifact, extracts URL, downloads."
 ;;; Custom downloaders
 ;;; ===========================================================================
 
+(defmacro writing-utf8-file ((stream output-path) &body body)
+  "Open OUTPUT-PATH for UTF-8 text output (creating its parent directory and
+superseding any existing file), bind STREAM inside BODY, and return OUTPUT-PATH
+when BODY completes normally."
+  (let ((path (gensym "PATH")))
+    `(let ((,path ,output-path))
+       (ensure-directories-exist ,path)
+       (with-open-file (,stream ,path :direction :output
+                                      :if-exists :supersede
+                                      :external-format :utf-8)
+         ,@body)
+       ,path)))
+
 (defun download-report (client notebook-id output-path &key artifact-id)
   "Download a report artifact as markdown to OUTPUT-PATH.
 Reads artifact row index 7 (report content wrapper)."
@@ -777,12 +790,8 @@ Reads artifact row index 7 (report content wrapper)."
         (error 'artifact-parse-error
                :artifact-type "report_content"
                :details "Invalid report content structure"))
-      (ensure-directories-exist output-path)
-      (with-open-file (out output-path :direction :output
-                           :if-exists :supersede
-                           :external-format :utf-8)
-        (write-string markdown out))
-      output-path)))
+      (writing-utf8-file (out output-path)
+        (write-string markdown out)))))
 
 (defun download-data-table (client notebook-id output-path &key artifact-id)
   "Download a data table artifact as CSV to OUTPUT-PATH.
@@ -818,15 +827,11 @@ Reads artifact row index 18 (table raw data), parses headers + rows."
                :artifact-type "data_table"
                :details "Failed to extract headers"))
       (setf rows (nreverse rows))
-      (ensure-directories-exist output-path)
-      (with-open-file (out output-path :direction :output
-                           :if-exists :supersede
-                           :external-format :utf-8)
+      (writing-utf8-file (out output-path)
         (write-string (%csv-escape-row headers) out)
         (dolist (row rows)
           (terpri out)
-          (write-string (%csv-escape-row row) out)))
-      output-path)))
+          (write-string (%csv-escape-row row) out))))))
 
 (defun %extract-cell-text (cell)
   "Recursively extract text from a nested data-table cell structure."
@@ -1051,12 +1056,8 @@ Reads artifact row index 16: metadata[3]=PDF, metadata[4]=PPTX."
                             t1
                             (if quiz-p "Untitled Quiz" "Untitled Flashcards"))))
                (content (%format-interactive-content app-data title fmt html quiz-p)))
-          (ensure-directories-exist output-path)
-          (with-open-file (out output-path :direction :output
-                               :if-exists :supersede
-                               :external-format :utf-8)
-            (write-string content out))
-          output-path)))))
+          (writing-utf8-file (out output-path)
+            (write-string content out)))))))
 
 (defun download-quiz (client notebook-id output-path
                       &key artifact-id (output-format "markdown"))
@@ -1092,12 +1093,8 @@ Reads artifact row index 16: metadata[3]=PDF, metadata[4]=PPTX."
                  :details "Invalid structure"))
         (handler-case
             (let ((json-data (cl-json:decode-json-from-string json-string)))
-              (ensure-directories-exist output-path)
-              (with-open-file (out output-path :direction :output
-                                   :if-exists :supersede
-                                   :external-format :utf-8)
-                (write-string (cl-json:encode-json-to-string json-data) out))
-              output-path)
+              (writing-utf8-file (out output-path)
+                (write-string (cl-json:encode-json-to-string json-data) out)))
           (error (e)
             (error 'artifact-parse-error
                    :artifact-type "mind_map"
