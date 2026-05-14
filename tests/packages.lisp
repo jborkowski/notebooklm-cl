@@ -179,4 +179,7 @@
                 #:%select-artifact #:%extract-cell-text #:%csv-escape-row
                 #:define-simple-downloader
                 #:download-audio #:download-video #:download-infographic
-                #:download-report #:download-data-table #:download-slide-deck))
+                #:download-report #:download-data-table #:download-slide-deck
+                #:download-quiz #:download-flashcards #:download-mind-map
+                #:%extract-app-data #:%format-quiz-markdown #:%format-flashcards-markdown
+                #:%html-unescape-minimal #:%json-alist-get))

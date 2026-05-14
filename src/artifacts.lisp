@@ -887,6 +887,232 @@ Reads artifact row index 16: metadata[3]=PDF, metadata[4]=PPTX."
       (%download-url url output-path))))
 
 ;;; ===========================================================================
+;;; Quiz / flashcard HTML — app-data extraction (Python _extract_app_data)
+;;; ===========================================================================
+
+(defun %html-replace-all (string old new)
+  (let ((ol (length old))
+        (out (make-string-output-stream)))
+    (loop with start = 0
+          for pos = (search old string :start2 start)
+          while pos
+          do (write-string string out :start start :end pos)
+             (write-string new out)
+             (setf start (+ pos ol))
+          finally (write-string string out :start start))
+    (get-output-stream-string out)))
+
+(defun %html-unescape-minimal (s)
+  "Undo the entity subset found in data-app-data (Python html.unescape subset)."
+  (reduce (lambda (acc pair)
+            (%html-replace-all acc (car pair) (cadr pair)))
+          '(("&quot;" "\"")
+            ("&#34;" "\"")
+            ("&apos;" "'")
+            ("&#39;" "'")
+            ("&lt;" "<")
+            ("&gt;" ">")
+            ("&amp;" "&"))
+          :initial-value s))
+
+(defun %json-alist-get (obj key)
+  (when (listp obj)
+    (or (cdr (assoc key obj :test #'string=))
+        (cdr (assoc (intern (string-upcase key) :keyword) obj)))))
+
+(defun %extract-app-data (html-content)
+  "Parse JSON from data-app-data= HTML attribute (quiz / flashcard embeds)."
+  (unless (stringp html-content)
+    (error 'artifact-parse-error
+           :artifact-type "quiz/flashcard"
+           :details "HTML content must be a string"))
+  (let ((key "data-app-data=\""))
+    (let ((start (search key html-content)))
+      (unless start
+        (error 'artifact-parse-error
+               :artifact-type "quiz/flashcard"
+               :details "No data-app-data attribute found in HTML"))
+      (let* ((value-start (+ start (length key)))
+             (end (position #\" html-content :start value-start)))
+        (unless end
+          (error 'artifact-parse-error
+                 :artifact-type "quiz/flashcard"
+                 :details "Unterminated data-app-data attribute"))
+        (let* ((encoded (subseq html-content value-start end))
+               (decoded (%html-unescape-minimal encoded)))
+          (handler-case
+              (cl-json:decode-json-from-string decoded)
+            (error (e)
+              (error 'artifact-parse-error
+                     :artifact-type "quiz/flashcard"
+                     :details (format nil "Failed to parse JSON: ~A" e)
+                     :cause e))))))))
+
+(defun %format-quiz-markdown (title questions)
+  "Format quiz QUESTIONS (decoded JSON list) as markdown; mirrors Python."
+  (with-output-to-string (out)
+    (format out "# ~A~%~%" title)
+    (loop for q in questions
+          for i from 1
+          do (format out "## Question ~D~%" i)
+             (format out "~A~%~%" (or (%json-alist-get q "question") ""))
+             (dolist (opt (or (%json-alist-get q "answerOptions") ()))
+               (let* ((correctp (%json-alist-get opt "isCorrect"))
+                      (marker (if correctp "[x]" "[ ]"))
+                      (text (or (%json-alist-get opt "text") "")))
+                 (format out "- ~A ~A~%" marker text)))
+             (let ((hint (%json-alist-get q "hint")))
+               (when hint
+                 (format out "~%**Hint:** ~A~%" hint)))
+             (terpri out))))
+
+(defun %format-flashcards-markdown (title cards)
+  "Format flashcard CARDS as markdown; mirrors Python (_format_flashcards_markdown)."
+  (with-output-to-string (out)
+    (format out "# ~A~%~%" title)
+    (loop for card in cards
+          for i from 1
+          do (format out "## Card ~D~%~%" i)
+             (format out "**Q:** ~A~%~%" (or (%json-alist-get card "f") ""))
+             (format out "**A:** ~A~%~%" (or (%json-alist-get card "b") ""))
+             (format out "---~%~%"))))
+
+(defun %format-interactive-content (app-data title output-format html-content quiz-p)
+  "Build output string for :json, :markdown, or :html (keyword or string OUTPUT-FORMAT)."
+  (let ((fmt (string-downcase
+              (if (keywordp output-format)
+                  (symbol-name output-format)
+                  output-format))))
+    (cond
+      ((string= fmt "html") html-content)
+      (quiz-p
+       (let ((questions (or (%json-alist-get app-data "quiz") ())))
+         (cond
+           ((string= fmt "markdown")
+            (%format-quiz-markdown title questions))
+           (t
+            (cl-json:encode-json-to-string
+             `(("title" . ,title) ("questions" . ,questions))))))
+      (t
+       (let ((cards (or (%json-alist-get app-data "flashcards") ())))
+         (cond
+           ((string= fmt "markdown")
+            (%format-flashcards-markdown title cards))
+           (t
+            (let ((normalized
+                    (mapcar (lambda (c)
+                              `(("front" . ,(or (%json-alist-get c "f") ""))
+                                ("back" . ,(or (%json-alist-get c "b") ""))))
+                            cards)))
+              (cl-json:encode-json-to-string
+               `(("title" . ,title) ("cards" . ,normalized))))))))))))
+
+(defun %sort-artifacts-by-created-desc (artifacts)
+  (sort (copy-list artifacts) #'>
+        :key (lambda (a) (or (art-created-at a) 0))))
+
+(defun %get-interactive-html-content (client notebook-id artifact-id)
+  "Fetch HTML wrapper for a quiz/flashcard; Python _get_artifact_content."
+  (let ((result (rpc-call client *get-interactive-html*
+                          (list artifact-id)
+                          :source-path (%notebook-path notebook-id)
+                          :allow-null t)))
+    (when (and result (listp result) (plusp (length result)))
+      (let ((data (first result)))
+        (when (and (listp data) (> (length data) 9))
+          (let ((slot9 (nth 9 data)))
+            (when (and (listp slot9) (plusp (length slot9))
+                       (stringp (first slot9)))
+              (first slot9))))))))
+
+(defun %download-interactive-artifact (client notebook-id output-path artifact-id
+                                       output-format quiz-p)
+  "Shared download path for quiz and flashcard (Python _download_interactive_artifact)."
+  (let* ((fmt (if (keywordp output-format)
+                  (string-downcase (symbol-name output-format))
+                  (string-downcase output-format)))
+         (atype-str (if quiz-p "quiz" "flashcards")))
+    (unless (member fmt '("json" "markdown" "html") :test #'string=)
+      (error 'validation-error))
+    (let* ((artifacts (if quiz-p
+                          (list-quizzes client notebook-id)
+                          (list-flashcards client notebook-id)))
+           (completed (remove-if-not #'artifact-is-completed-p artifacts)))
+      (unless completed
+        (error 'artifact-not-ready-error :artifact-type atype-str))
+      (let* ((sorted (%sort-artifacts-by-created-desc completed))
+             (selected
+               (if artifact-id
+                   (or (find artifact-id sorted :key #'art-id :test #'string=)
+                       (error 'artifact-not-found-error
+                              :artifact-id artifact-id
+                              :artifact-type atype-str))
+                   (first sorted)))
+             (html (%get-interactive-html-content client notebook-id (art-id selected))))
+        (unless html
+          (error 'artifact-download-error
+                 :artifact-type atype-str
+                 :details "Failed to fetch content"))
+        (let* ((app-data (%extract-app-data html))
+               (title (let ((t1 (art-title selected)))
+                        (if (and t1 (plusp (length t1)))
+                            t1
+                            (if quiz-p "Untitled Quiz" "Untitled Flashcards"))))
+               (content (%format-interactive-content app-data title fmt html quiz-p)))
+          (ensure-directories-exist output-path)
+          (with-open-file (out output-path :direction :output
+                               :if-exists :supersede
+                               :external-format :utf-8)
+            (write-string content out))
+          output-path)))))
+
+(defun download-quiz (client notebook-id output-path
+                      &key artifact-id (output-format "markdown"))
+  "Download a completed quiz via GET_INTERACTIVE_HTML; OUTPUT-FORMAT is markdown, json, or html."
+  (%download-interactive-artifact client notebook-id output-path
+                                  artifact-id output-format t))
+
+(defun download-flashcards (client notebook-id output-path
+                            &key artifact-id (output-format "markdown"))
+  "Download completed flashcards via GET_INTERACTIVE_HTML."
+  (%download-interactive-artifact client notebook-id output-path
+                                  artifact-id output-format nil))
+
+(defun download-mind-map (client notebook-id output-path &key artifact-id)
+  "Save mind-map JSON from GET_NOTES_AND_MIND_MAPS rows (Python download_mind_map)."
+  (let ((mind-maps (%list-mind-maps client notebook-id)))
+    (unless mind-maps
+      (error 'artifact-not-ready-error :artifact-type "mind_map"))
+    (let ((mm (if artifact-id
+                  (or (find artifact-id mind-maps
+                             :key (lambda (row) (princ-to-string (first row)))
+                             :test #'string=)
+                      (error 'artifact-not-found-error
+                             :artifact-id artifact-id
+                             :artifact-type "mind_map"))
+                  (first mind-maps))))
+      (let* ((inner (nth 1 mm))
+             (json-string (when (and (listp inner) (> (length inner) 1))
+                            (nth 1 inner))))
+        (unless (stringp json-string)
+          (error 'artifact-parse-error
+                 :artifact-type "mind_map_content"
+                 :details "Invalid structure"))
+        (handler-case
+            (let ((json-data (cl-json:decode-json-from-string json-string)))
+              (ensure-directories-exist output-path)
+              (with-open-file (out output-path :direction :output
+                                   :if-exists :supersede
+                                   :external-format :utf-8)
+                (write-string (cl-json:encode-json-to-string json-data) out))
+              output-path)
+          (error (e)
+            (error 'artifact-parse-error
+                   :artifact-type "mind_map"
+                   :details (format nil "Failed to parse structure: ~A" e)
+                   :cause e)))))))
+
+;;; ===========================================================================
 ;;; Delete / rename / export
 ;;; ===========================================================================
 

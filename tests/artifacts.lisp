@@ -316,3 +316,52 @@
     (true (consp expansion))
     (is eq 'defun (first expansion))
     (true (search "DOWNLOAD" (princ-to-string expansion)))))
+
+;;; ===========================================================================
+;;; Interactive content — HTML app-data (quiz / flashcards)
+;;; ===========================================================================
+
+(define-test test-html-unescape-minimal-quot
+  :parent test-artifacts
+  (is string= "\"x\"" (%html-unescape-minimal "&quot;x&quot;"))
+  (is string= "a&b" (%html-unescape-minimal "a&amp;b")))
+
+(define-test test-extract-app-data-from-attribute
+  :parent test-artifacts
+  (let* ((html "<div data-app-data=\"{&quot;quiz&quot;:[{&quot;question&quot;:&quot;Q&quot;}]}\" />")
+         (data (%extract-app-data html))
+         (quiz (%json-alist-get data "quiz")))
+    (true (listp quiz))
+    (is = 1 (length quiz))
+    (is string= "Q" (%json-alist-get (first quiz) "question"))))
+
+(define-test test-extract-app-data-missing-signals-parse
+  :parent test-artifacts
+  (true (handler-case
+            (%extract-app-data "<html></html>")
+          (artifact-parse-error (e)
+            (declare (ignore e))
+            t)
+          (error () nil))))
+
+(define-test test-format-quiz-markdown-shape
+  :parent test-artifacts
+  (let* ((q `(("question" . "One?")
+              ("answerOptions" . ((("text" . "A") ("isCorrect" . nil))
+                                  (("text" . "B") ("isCorrect" . t))))))
+         (md (%format-quiz-markdown "T" (list q))))
+    (true (search "# T" md))
+    (true (search "[x] B" md))))
+
+(define-test test-format-flashcards-markdown-shape
+  :parent test-artifacts
+  (let ((md (%format-flashcards-markdown "Deck"
+              (list '(("f" . "front") ("b" . "back"))))))
+    (true (search "# Deck" md))
+    (true (search "**Q:** front" md))))
+
+(define-test test-download-quiz-flashcards-mind-map-defined
+  :parent test-artifacts
+  (true (fboundp 'download-quiz))
+  (true (fboundp 'download-flashcards))
+  (true (fboundp 'download-mind-map)))

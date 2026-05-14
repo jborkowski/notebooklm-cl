@@ -3,6 +3,7 @@
   (:export #:*default-base-url*
            #:get-base-url
            #:get-base-host
+           #:parse-url-host
            #:get-default-language))
 
 (defpackage #:notebooklm-cl.util
@@ -266,6 +267,8 @@
            #:split-lines
            #:parse-chunked-response
            #:collect-rpc-ids
+           #:contains-user-displayable-error-p
+           #:extract-status-code
            #:extract-rpc-result
            #:decode-response
            #:rpc-error-code
@@ -381,12 +384,14 @@
                 #:artifact-download-error-details
                 #:artifact-download-error-artifact-type
                 #:artifact-parse-error
-                #:artifact-not-ready-error)
+                #:artifact-not-ready-error
+                #:artifact-not-found-error)
   (:import-from #:notebooklm-cl.util
                 #:%nths)
   (:import-from #:notebooklm-cl.types
                 #:artifact-from-api-response #:artifact-from-mind-map-data
-                #:artifact-kind #:art-id
+                #:artifact-kind #:art-id #:art-title
+                #:artifact-is-completed-p
                 #:source-id
                 #:make-generation-status #:generation-status-from-api-response
                 #:generation-is-complete-p #:generation-is-failed-p
@@ -399,6 +404,7 @@
                 #:*create-artifact*
                 #:*generate-mind-map* #:*create-note*
                 #:*delete-artifact* #:*rename-artifact* #:*export-artifact*
+                #:*get-interactive-html*
                 #:*get-suggested-reports*
                 #:artifact-status-to-str
                 #:+artifact-audio+ #:+artifact-report+
@@ -432,11 +438,16 @@
    #:define-simple-downloader
    #:download-audio #:download-video #:download-infographic
    #:download-report #:download-data-table #:download-slide-deck
+   #:download-quiz #:download-flashcards #:download-mind-map
    ;; internal helpers — exported for tests
    #:%source-ids-triple #:%source-ids-double
    #:%report-format-config #:%now-seconds
    #:%download-url #:%validate-download-url
    #:%select-artifact
+   #:%extract-cell-text #:%csv-escape-row
+   #:%extract-app-data
+   #:%format-quiz-markdown #:%format-flashcards-markdown
+   #:%html-unescape-minimal #:%json-alist-get
    #:delete-artifact
    #:rename-artifact
    #:export-artifact
