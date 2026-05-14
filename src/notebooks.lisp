@@ -134,14 +134,11 @@ Returns a NOTEBOOK struct."
 
 (defun get-summary (client notebook-id)
   "Get raw summary text for a notebook. Returns a string."
-  (let ((result (%summarize-raw client notebook-id)))
-    (handler-case
-        (if (and result (listp result) result
-                 (listp (first result)) (first result)
-                 (listp (first (first result))))
-            (princ-to-string (first (first (first result))))
-            "")
-      (error () ""))))
+  (handler-case
+      (let ((raw (notebooklm-cl.util:%nths
+                  (%summarize-raw client notebook-id) 0 0 0)))
+        (if raw (princ-to-string raw) ""))
+    (error () "")))
 
 (defun get-description (client notebook-id)
   "Get AI-generated summary and suggested topics for a notebook.
