@@ -32,7 +32,20 @@
   (parse-url-host (get-base-url)))
 
 (defun get-default-language ()
-  (let ((raw (or (uiop:getenv "NOTEBOOKLM_HL") "")))
-    (if (string= (string-trim " " raw) "")
-        "en"
-        (string-trim " " raw))))
+  (let* ((raw (or (uiop:getenv "NOTEBOOKLM_HL") ""))
+         (trimmed (string-trim " " raw)))
+    (if (string= trimmed "")
+        (or (load-stored-hl) "en")
+        trimmed)))
+
+(defun load-stored-hl ()
+  "Try to read hl from ~/.notebooklm-cl/auth.json."
+  (handler-case
+      (let* ((path (merge-pathnames ".notebooklm-cl/auth.json" (user-homedir-pathname)))
+             (json (cl-json:decode-json-from-string
+                    (with-open-file (in path :external-format :utf-8)
+                      (let ((s (make-string (file-length in))))
+                        (read-sequence s in)
+                        s)))))
+        (cdr (assoc :hl json)))
+    (error () nil)))

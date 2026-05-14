@@ -60,11 +60,15 @@
          (url (build-url method-id sp auth))
          (rpc-request (notebooklm-cl.rpc.encoder:encode-rpc-request method-id params))
          (body (notebooklm-cl.rpc.encoder:build-request-body
-                rpc-request :csrf-token (auth-tokens-csrf-token auth))))
+                rpc-request :csrf-token (auth-tokens-csrf-token auth)))
+         (headers `(("Content-Type" . "application/x-www-form-urlencoded;charset=UTF-8")
+                    ,@(when (auth-tokens-cookie-header auth)
+                        `(("Cookie" . ,(auth-tokens-cookie-header auth)))))))
     (handler-case
         (multiple-value-bind (body-str status)
             (dex:post url
                       :content body
+                      :headers headers
                       :connect-timeout (client-core-connect-timeout client)
                       :read-timeout (client-core-timeout client))
           (declare (ignore status))
