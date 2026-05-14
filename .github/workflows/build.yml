@@ -31,10 +31,20 @@ jobs:
               ;;
           esac
 
+      - name: Install Quicklisp
+        run: |
+          curl -O https://beta.quicklisp.org/quicklisp.lisp
+          sbcl --non-interactive \
+            --load quicklisp.lisp \
+            --eval '(quicklisp-quickstart:install)' \
+            --eval '(quit)'
+
       - name: Build
         run: |
           sbcl --non-interactive \
-            --eval '(progn (load "notebooklm-cl.asd") (asdf:load-system :notebooklm-cl))' \
+            --load ~/quicklisp/setup.lisp \
+            --eval '(load "notebooklm-cl.asd")' \
+            --eval '(asdf:load-system :notebooklm-cl)' \
             --eval '(sb-ext:save-lisp-and-die "notebooklm" :executable t :compression t :toplevel (quote notebooklm-cl.cli:main) :purify t)'
 
       - name: Upload
