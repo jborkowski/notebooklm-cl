@@ -113,6 +113,28 @@ Opens client before BODY, closes on unwind, catches notebooklm-error."
              (uiop:quit 1)))
        (close-client ,client-var))))
 
+(defmacro string-case (key &body clauses)
+  "Match KEY (evaluated once) against literal-string clauses.
+Each CLAUSE is (PATTERN &rest forms).  PATTERN may be:
+  - a literal string (matched with STRING=);
+  - a list of strings (matches if any equal KEY);
+  - OTHERWISE or T (default fallback).
+Returns the value of the matched clause's forms, or NIL if no match."
+  (let ((k (gensym "KEY")))
+    `(let ((,k ,key))
+       (cond
+         ,@(loop for (pattern . body) in clauses
+                 collect
+                 (cond
+                   ((or (eq pattern 'otherwise) (eq pattern t))
+                    `(t ,@body))
+                   ((stringp pattern)
+                    `((string= ,k ,pattern) ,@body))
+                   ((and (consp pattern) (every #'stringp pattern))
+                    `((or ,@(loop for s in pattern collect `(string= ,k ,s)))
+                      ,@body))
+                   (t (error "string-case: invalid pattern ~S" pattern))))))))
+
 (defmacro with-required-args ((&rest names) usage &body body)
   "Bind each of NAMES to consecutive positional args from POS, starting at
 index 1 (positional 0 is the command word itself).  If any binding is NIL,
@@ -389,33 +411,23 @@ Returns (values session-id csrf-token cookie-header hl)."
           (instr (kv kvs "instructions")))
       (with-nblm-client (c)
         (let ((result
-                (cond
-                  ((string= type "audio")
-                   (generate-audio c nb-id :source-ids src-ids :language lang :instructions instr))
-                  ((string= type "report")
-                   (generate-report c nb-id :source-ids src-ids :language lang
-                                    :report-format (kv kvs "format" "briefing_doc")
-                                    :custom-prompt (kv kvs "prompt")
-                                    :extra-instructions instr))
-                  ((string= type "quiz")
-                   (generate-quiz c nb-id :source-ids src-ids :instructions instr))
-                  ((string= type "flashcards")
-                   (generate-flashcards c nb-id :source-ids src-ids :instructions instr))
-                  ((string= type "video")
-                   (generate-video c nb-id :source-ids src-ids :language lang :instructions instr))
-                  ((string= type "cinematic")
-                   (generate-cinematic-video c nb-id :source-ids src-ids :language lang
-                                             :instructions instr))
-                  ((string= type "infographic")
-                   (generate-infographic c nb-id :source-ids src-ids :language lang :instructions instr))
-                  ((string= type "slide-deck")
-                   (generate-slide-deck c nb-id :source-ids src-ids :language lang :instructions instr))
-                  ((string= type "data-table")
-                   (generate-data-table c nb-id :source-ids src-ids :language lang :instructions instr))
-                  ((string= type "mind-map")
-                   (generate-mind-map c nb-id :source-ids src-ids :language lang :instructions instr))
-                  (t (format *error-output* "~&Unknown generate type: ~A~%" type)
-                     (uiop:quit 1)))))
+                (string-case type
+                  ("audio"       (generate-audio c nb-id :source-ids src-ids :language lang :instructions instr))
+                  ("report"      (generate-report c nb-id :source-ids src-ids :language lang
+                                                  :report-format (kv kvs "format" "briefing_doc")
+                                                  :custom-prompt (kv kvs "prompt")
+                                                  :extra-instructions instr))
+                  ("quiz"        (generate-quiz c nb-id :source-ids src-ids :instructions instr))
+                  ("flashcards"  (generate-flashcards c nb-id :source-ids src-ids :instructions instr))
+                  ("video"       (generate-video c nb-id :source-ids src-ids :language lang :instructions instr))
+                  ("cinematic"   (generate-cinematic-video c nb-id :source-ids src-ids :language lang
+                                                           :instructions instr))
+                  ("infographic" (generate-infographic c nb-id :source-ids src-ids :language lang :instructions instr))
+                  ("slide-deck"  (generate-slide-deck c nb-id :source-ids src-ids :language lang :instructions instr))
+                  ("data-table"  (generate-data-table c nb-id :source-ids src-ids :language lang :instructions instr))
+                  ("mind-map"    (generate-mind-map c nb-id :source-ids src-ids :language lang :instructions instr))
+                  (otherwise (format *error-output* "~&Unknown generate type: ~A~%" type)
+                             (uiop:quit 1)))))
           (let ((status (gen-status result))
                 (task-id (gen-task-id result)))
             (format t "~&Status: ~A~%" status)
@@ -429,24 +441,21 @@ Returns (values session-id csrf-token cookie-header hl)."
     (let ((art-id (kv kvs "id")))
       (with-nblm-client (c)
         (let ((saved-path
-                (cond
-                  ((string= type "audio") (download-audio c nb-id out-path :artifact-id art-id))
-                  ((string= type "video") (download-video c nb-id out-path :artifact-id art-id))
-                  ((string= type "infographic") (download-infographic c nb-id out-path :artifact-id art-id))
-                  ((string= type "report") (download-report c nb-id out-path :artifact-id art-id))
-                  ((string= type "data-table") (download-data-table c nb-id out-path :artifact-id art-id))
-                  ((string= type "slide-deck")
-                   (download-slide-deck c nb-id out-path :artifact-id art-id
-                                        :output-format (kv kvs "format" "pdf")))
-                  ((string= type "quiz")
-                   (download-quiz c nb-id out-path :artifact-id art-id
-                                  :output-format (kv kvs "format" "markdown")))
-                  ((string= type "flashcards")
-                   (download-flashcards c nb-id out-path :artifact-id art-id
-                                        :output-format (kv kvs "format" "markdown")))
-                  ((string= type "mind-map") (download-mind-map c nb-id out-path :artifact-id art-id))
-                  (t (format *error-output* "~&Unknown download type: ~A~%" type)
-                     (uiop:quit 1)))))
+                (string-case type
+                  ("audio"       (download-audio c nb-id out-path :artifact-id art-id))
+                  ("video"       (download-video c nb-id out-path :artifact-id art-id))
+                  ("infographic" (download-infographic c nb-id out-path :artifact-id art-id))
+                  ("report"      (download-report c nb-id out-path :artifact-id art-id))
+                  ("data-table"  (download-data-table c nb-id out-path :artifact-id art-id))
+                  ("slide-deck"  (download-slide-deck c nb-id out-path :artifact-id art-id
+                                                      :output-format (kv kvs "format" "pdf")))
+                  ("quiz"        (download-quiz c nb-id out-path :artifact-id art-id
+                                                :output-format (kv kvs "format" "markdown")))
+                  ("flashcards"  (download-flashcards c nb-id out-path :artifact-id art-id
+                                                      :output-format (kv kvs "format" "markdown")))
+                  ("mind-map"    (download-mind-map c nb-id out-path :artifact-id art-id))
+                  (otherwise (format *error-output* "~&Unknown download type: ~A~%" type)
+                             (uiop:quit 1)))))
           (format t "~&Downloaded to ~A~%" saved-path))))))
 
 (defun cmd-wait (pos kvs)
@@ -501,22 +510,25 @@ Returns (values session-id csrf-token cookie-header hl)."
          (kvs (cdr parsed))
          (cmd (first pos)))
     (cond
-      ((or (null cmd) (string= cmd "help")) (usage))
-      ((string= cmd "login")    (cmd-login pos kvs))
-      ((string= cmd "whoami")   (cmd-whoami pos kvs))
-      ((string= cmd "notebooks") (cmd-notebooks pos kvs))
-      ((string= cmd "create-notebook") (cmd-create-notebook pos kvs))
-      ((string= cmd "sources")  (cmd-sources pos kvs))
-      ((string= cmd "artifacts") (cmd-artifacts pos kvs))
-      ((string= cmd "generate") (cmd-generate pos kvs))
-      ((string= cmd "download") (cmd-download pos kvs))
-      ((string= cmd "wait")     (cmd-wait pos kvs))
-      ((string= cmd "suggest")  (cmd-suggest pos kvs))
-      ((string= cmd "metadata") (cmd-get-metadata pos kvs))
-      ((string= cmd "add-url")  (cmd-add-url pos kvs))
-      ((string= cmd "delete-artifact") (cmd-delete-artifact pos kvs))
-      ((string= cmd "delete-source") (cmd-delete-source pos kvs))
+      ((null cmd) (usage))
       (t
-       (format *error-output* "~&Unknown command: ~A~2%" cmd)
-       (usage)
-       (uiop:quit 1)))))
+       (string-case cmd
+         ("help"            (usage))
+         ("login"           (cmd-login pos kvs))
+         ("whoami"          (cmd-whoami pos kvs))
+         ("notebooks"       (cmd-notebooks pos kvs))
+         ("create-notebook" (cmd-create-notebook pos kvs))
+         ("sources"         (cmd-sources pos kvs))
+         ("artifacts"       (cmd-artifacts pos kvs))
+         ("generate"        (cmd-generate pos kvs))
+         ("download"        (cmd-download pos kvs))
+         ("wait"            (cmd-wait pos kvs))
+         ("suggest"         (cmd-suggest pos kvs))
+         ("metadata"        (cmd-get-metadata pos kvs))
+         ("add-url"         (cmd-add-url pos kvs))
+         ("delete-artifact" (cmd-delete-artifact pos kvs))
+         ("delete-source"   (cmd-delete-source pos kvs))
+         (otherwise
+          (format *error-output* "~&Unknown command: ~A~2%" cmd)
+          (usage)
+          (uiop:quit 1)))))))
