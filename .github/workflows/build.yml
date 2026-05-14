@@ -15,6 +15,7 @@ jobs:
           sbcl --non-interactive --load quicklisp.lisp \
             --eval '(quicklisp-quickstart:install)' --eval '(quit)'
       - run: |
+          mkdir -p ~/quicklisp/local-projects
           ln -s "$PWD" ~/quicklisp/local-projects/notebooklm-cl
           sbcl --non-interactive \
             --eval '(ql:quickload :notebooklm-cl)' \
@@ -43,6 +44,7 @@ jobs:
           sbcl --non-interactive --load quicklisp.lisp \
             --eval '(quicklisp-quickstart:install)' --eval '(quit)'
       - run: |
+          mkdir -p ~/quicklisp/local-projects
           ln -s "$PWD" ~/quicklisp/local-projects/notebooklm-cl
           sbcl --non-interactive \
             --eval '(ql:quickload :notebooklm-cl)' \
