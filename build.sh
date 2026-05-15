@@ -15,7 +15,7 @@ sbcl --non-interactive \
      --eval '(format t "~&System loaded. Compressing binary...~%")' \
      --eval "(sb-ext:save-lisp-and-die \"$OUTPUT\"
                :executable t
-               :compression t
+               :compression 22
                :toplevel #'notebooklm-cl.cli:main
                :purify t)" \
      --eval '(format t "~&✅ Binary ready: $OUTPUT~%")'
